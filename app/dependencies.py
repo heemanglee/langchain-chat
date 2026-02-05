@@ -23,13 +23,13 @@ def get_llm() -> BaseChatModel:
         case "openai":
             return ChatOpenAI(
                 model=settings.openai_model,
-                api_key=settings.openai_api_key.get_secret_value(),
+                api_key=settings.openai_api_key,
                 streaming=True,
             )
         case "anthropic":
-            return ChatAnthropic(
-                model=settings.anthropic_model,
-                api_key=settings.anthropic_api_key.get_secret_value(),
+            return ChatAnthropic(  # type: ignore[call-arg]
+                model_name=settings.anthropic_model,
+                api_key=settings.anthropic_api_key,
                 streaming=True,
             )
         case _:
@@ -47,5 +47,5 @@ def get_embeddings() -> OpenAIEmbeddings:
         OpenAIEmbeddings: The configured embeddings model.
     """
     return OpenAIEmbeddings(
-        api_key=settings.openai_api_key.get_secret_value(),
+        api_key=settings.openai_api_key,
     )

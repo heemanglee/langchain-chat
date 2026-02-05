@@ -1,12 +1,13 @@
 """FastAPI application entry point."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.v1.chat_router import router as chat_router
 from app.core.config import settings
 
 logger = structlog.get_logger()
@@ -59,3 +60,7 @@ async def root() -> dict[str, str]:
         "version": "0.1.0",
         "docs": "/docs",
     }
+
+
+# Register routers
+app.include_router(chat_router)
