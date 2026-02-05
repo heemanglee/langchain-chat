@@ -1,0 +1,61 @@
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+import structlog
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import settings
+
+logger = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan handler for startup and shutdown events."""
+    # Startup
+    logger.info(
+        "Starting application",
+        app_name=settings.app_name,
+        environment=settings.app_env,
+        llm_provider=settings.llm_provider,
+    )
+    yield
+    # Shutdown
+    logger.info("Shutting down application")
+
+
+app = FastAPI(
+    title=settings.app_name,
+    description="LangChain 기반 채팅 서비스 - 웹검색, 파일 처리(RAG) 지원",
+    version="0.1.0",
+    lifespan=lifespan,
+    debug=settings.debug,
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if settings.is_development else [],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "healthy"}
+
+
+@app.get("/")
+async def root() -> dict[str, str]:
+    """Root endpoint."""
+    return {
+        "app": settings.app_name,
+        "version": "0.1.0",
+        "docs": "/docs",
+    }
