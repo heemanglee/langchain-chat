@@ -17,7 +17,7 @@ class TestRegisterEndpoint:
             },
         )
         assert resp.status_code == 201
-        data = resp.json()
+        data = resp.json()["data"]
         assert data["user"]["email"] == "new@example.com"
         assert "access_token" in data["tokens"]
 
@@ -74,7 +74,7 @@ class TestLoginEndpoint:
             json={"email": "login@example.com", "password": "Test1234!"},
         )
         assert resp.status_code == 200
-        data = resp.json()
+        data = resp.json()["data"]
         assert "access_token" in data
         assert data["token_type"] == "bearer"
 
@@ -114,14 +114,14 @@ class TestLogoutEndpoint:
             "/api/auth/login",
             json={"email": "logout@example.com", "password": "Test1234!"},
         )
-        token = login_resp.json()["access_token"]
+        token = login_resp.json()["data"]["access_token"]
         resp = await async_client.post(
             "/api/auth/logout",
             json={},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
-        assert resp.json()["message"] == "Successfully logged out"
+        assert resp.json()["data"]["message"] == "Successfully logged out"
 
     async def test_logout_without_auth(self, async_client: AsyncClient) -> None:
         resp = await async_client.post("/api/auth/logout", json={})
@@ -144,13 +144,13 @@ class TestRefreshEndpoint:
             "/api/auth/login",
             json={"email": "refresh@example.com", "password": "Test1234!"},
         )
-        refresh_token = login_resp.json()["refresh_token"]
+        refresh_token = login_resp.json()["data"]["refresh_token"]
         resp = await async_client.post(
             "/api/auth/refresh",
             json={"refresh_token": refresh_token},
         )
         assert resp.status_code == 200
-        assert "access_token" in resp.json()
+        assert "access_token" in resp.json()["data"]
 
     async def test_refresh_with_invalid_token(self, async_client: AsyncClient) -> None:
         resp = await async_client.post(

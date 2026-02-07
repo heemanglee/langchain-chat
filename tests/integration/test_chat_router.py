@@ -100,7 +100,7 @@ class TestChatEndpoint:
         )
 
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert "message" in data
         assert "conversation_id" in data
         assert "created_at" in data
@@ -235,4 +235,6 @@ class TestChatRouterIntegration:
         """Test that health check endpoint still works after router registration."""
         response = await unauthed_client.get("/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "healthy"}
+        data = response.json()
+        assert data["status"] == 200
+        assert data["data"]["status"] == "healthy"

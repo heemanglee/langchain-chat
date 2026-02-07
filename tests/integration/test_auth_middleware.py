@@ -43,8 +43,8 @@ class TestProtectedPaths:
         )
         assert resp.status_code == 401
         data = resp.json()
-        assert data["success"] is False
-        assert data["error"]["code"] == "MISSING_TOKEN"
+        assert data["status"] == 401
+        assert data["code"] == "MISSING_TOKEN"
 
     async def test_chat_with_invalid_token(self, async_client: AsyncClient) -> None:
         resp = await async_client.post(
@@ -53,7 +53,7 @@ class TestProtectedPaths:
             headers={"Authorization": "Bearer invalid.token.here"},
         )
         assert resp.status_code == 401
-        assert resp.json()["error"]["code"] == "INVALID_TOKEN"
+        assert resp.json()["code"] == "INVALID_TOKEN"
 
     async def test_chat_with_valid_token(
         self,
@@ -87,7 +87,7 @@ class TestProtectedPaths:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 401
-        assert resp.json()["error"]["code"] == "TOKEN_BLACKLISTED"
+        assert resp.json()["code"] == "TOKEN_BLACKLISTED"
 
     async def test_refresh_token_cannot_access_protected(
         self,
@@ -104,4 +104,4 @@ class TestProtectedPaths:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 401
-        assert resp.json()["error"]["code"] == "INVALID_TOKEN"
+        assert resp.json()["code"] == "INVALID_TOKEN"
