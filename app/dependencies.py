@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
 from app.core.config import settings
+from app.services.agent_service import AgentService
 
 
 @lru_cache
@@ -34,6 +35,16 @@ def get_llm() -> BaseChatModel:
             )
         case _:
             raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
+
+
+def get_agent_service() -> AgentService:
+    """Get AgentService instance.
+
+    Returns:
+        AgentService configured with the application LLM.
+    """
+    llm = get_llm()
+    return AgentService(llm=llm)
 
 
 @lru_cache
