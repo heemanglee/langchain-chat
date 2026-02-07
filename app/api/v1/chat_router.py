@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 
 from app.dependencies import get_agent_service, require_role
 from app.schemas.chat_schema import ChatRequest, ChatResponse
+from app.schemas.response_schema import ApiResponse, success_response
 from app.services.agent_service import AgentService
 
 router = APIRouter(
@@ -20,11 +21,11 @@ router = APIRouter(
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 
 
-@router.post("", response_model=ChatResponse)
+@router.post("", response_model=ApiResponse[ChatResponse])
 async def chat(
     request: ChatRequest,
     agent_service: AgentServiceDep,
-) -> ChatResponse:
+) -> dict:
     """Process a chat request and return a response.
 
     Args:
@@ -32,9 +33,10 @@ async def chat(
         agent_service: The agent service dependency.
 
     Returns:
-        ChatResponse with the agent's reply.
+        ApiResponse wrapping ChatResponse with the agent's reply.
     """
-    return await agent_service.chat(request)
+    result = await agent_service.chat(request)
+    return success_response(result)
 
 
 async def event_generator(

@@ -20,6 +20,7 @@ from app.schemas.auth_schema import (
     TokenPayload,
     TokenResponse,
 )
+from app.schemas.response_schema import ApiResponse, success_response
 from app.services.auth_service import AuthService
 from app.services.token_service import TokenService
 
@@ -31,34 +32,36 @@ TokenServiceDep = Annotated[TokenService, Depends(get_token_service)]
 
 @router.post(
     "/register",
-    response_model=RegisterResponse,
+    response_model=ApiResponse[RegisterResponse],
     status_code=status.HTTP_201_CREATED,
 )
 async def register(
     body: RegisterRequest,
     auth_service: AuthServiceDep,
-) -> RegisterResponse:
+) -> dict:
     """Register a new user."""
-    return await auth_service.register(body)
+    result = await auth_service.register(body)
+    return success_response(result, status=201)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=ApiResponse[TokenResponse])
 async def login(
     body: LoginRequest,
     auth_service: AuthServiceDep,
-) -> TokenResponse:
+) -> dict:
     """Authenticate and receive tokens."""
-    return await auth_service.login(body)
+    result = await auth_service.login(body)
+    return success_response(result)
 
 
-@router.post("/logout", response_model=MessageResponse)
+@router.post("/logout", response_model=ApiResponse[MessageResponse])
 async def logout(
     request: Request,
     body: LogoutRequest,
     token_service: TokenServiceDep,
     auth_service: AuthServiceDep,
     current_user: CurrentUser = Depends(get_current_user),
-) -> MessageResponse:
+) -> dict:
     """Revoke the current access token."""
     access_payload = TokenPayload(
         sub=str(current_user.id),
@@ -68,13 +71,15 @@ async def logout(
         jti=request.state.jti,
         exp=request.state.exp,
     )
-    return await auth_service.logout(access_payload, body)
+    result = await auth_service.logout(access_payload, body)
+    return success_response(result)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=ApiResponse[TokenResponse])
 async def refresh(
     body: RefreshRequest,
     auth_service: AuthServiceDep,
-) -> TokenResponse:
+) -> dict:
     """Refresh an access token."""
-    return await auth_service.refresh(body)
+    result = await auth_service.refresh(body)
+    return success_response(result)

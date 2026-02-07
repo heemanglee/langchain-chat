@@ -4,9 +4,11 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
@@ -15,9 +17,14 @@ from app.api.common.auth_router import router as auth_router
 from app.api.v1.chat_router import router as chat_router
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.core.exceptions import AppException, app_exception_handler
+from app.core.exceptions import (
+    AppException,
+    app_exception_handler,
+    validation_exception_handler,
+)
 from app.core.middleware import AuthMiddleware
 from app.core.redis import close_redis, init_redis
+from app.schemas.response_schema import ApiResponse, success_response
 
 logger = structlog.get_logger()
 
@@ -53,9 +60,25 @@ app = FastAPI(
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 
+
+async def rate_limit_exceeded_handler(
+    request: Request, exc: RateLimitExceeded
+) -> JSONResponse:
+    """Custom handler for rate limit exceeded errors."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "status": 429,
+            "message": "Rate limit exceeded",
+            "code": "RATE_LIMIT_EXCEEDED",
+        },
+    )
+
+
 # Exception handlers
 app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, validation_exception_handler)  # type: ignore[arg-type]
 
 # Middleware (registration order: inner→outer, execution order: outer→inner)
 app.add_middleware(AuthMiddleware)
@@ -69,20 +92,22 @@ app.add_middleware(
 )
 
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
+@app.get("/health", response_model=ApiResponse[dict])
+async def health_check() -> dict:
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return success_response({"status": "healthy"})
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
+@app.get("/", response_model=ApiResponse[dict])
+async def root() -> dict:
     """Root endpoint."""
-    return {
-        "app": settings.app.name,
-        "version": "0.1.0",
-        "docs": "/docs",
-    }
+    return success_response(
+        {
+            "app": settings.app.name,
+            "version": "0.1.0",
+            "docs": "/docs",
+        }
+    )
 
 
 # Register routers
