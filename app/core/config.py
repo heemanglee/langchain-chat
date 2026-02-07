@@ -9,8 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.settings import (
     AppConfig,
+    AuthConfig,
+    DatabaseConfig,
     FileUploadConfig,
     LLMConfig,
+    RedisConfig,
     ServerConfig,
     VectorStoreConfig,
 )
@@ -112,6 +115,46 @@ class Settings(BaseSettings):
         description="Server port",
     )
 
+    # JWT Auth
+    jwt_secret_key: SecretStr = Field(
+        description="JWT secret key for token signing",
+    )
+    jwt_algorithm: str = Field(
+        default="HS256",
+        description="JWT signing algorithm",
+    )
+    jwt_access_token_expire_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=1440,
+        description="Access token expiration in minutes",
+    )
+    jwt_refresh_token_expire_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description="Refresh token expiration in days",
+    )
+    login_rate_limit: str = Field(
+        default="5/minute",
+        description="Login endpoint rate limit",
+    )
+    register_rate_limit: str = Field(
+        default="3/minute",
+        description="Register endpoint rate limit",
+    )
+
+    # Database
+    database_url: SecretStr = Field(
+        description="Async database URL (mysql+aiomysql://...)",
+    )
+
+    # Redis
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis connection URL",
+    )
+
     # --- Domain properties ---
 
     @cached_property
@@ -158,6 +201,28 @@ class Settings(BaseSettings):
             host=self.host,
             port=self.port,
         )
+
+    @cached_property
+    def auth(self) -> AuthConfig:
+        """JWT authentication configuration."""
+        return AuthConfig(
+            secret_key=self.jwt_secret_key,
+            algorithm=self.jwt_algorithm,
+            access_token_expire_minutes=self.jwt_access_token_expire_minutes,
+            refresh_token_expire_days=self.jwt_refresh_token_expire_days,
+            login_rate_limit=self.login_rate_limit,
+            register_rate_limit=self.register_rate_limit,
+        )
+
+    @cached_property
+    def database(self) -> DatabaseConfig:
+        """Database connection configuration."""
+        return DatabaseConfig(url=self.database_url)
+
+    @cached_property
+    def redis(self) -> RedisConfig:
+        """Redis connection configuration."""
+        return RedisConfig(url=self.redis_url)
 
     # --- Convenience properties (delegate to domain configs) ---
 

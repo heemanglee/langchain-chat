@@ -4,13 +4,15 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import fakeredis.aioredis
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.api.v1.chat_router import get_agent_service
-from app.main import app
+from app.core.database import get_async_session
 from app.schemas.chat_schema import ChatResponse, StreamEvent
 from app.services.agent_service import AgentService
+from tests.conftest import make_auth_headers, override_get_async_session
 
 
 @pytest.fixture
@@ -38,21 +40,49 @@ def mock_agent_service() -> MagicMock:
 @pytest.fixture
 async def async_client_with_mock(
     mock_agent_service: MagicMock,
+    fake_redis: fakeredis.aioredis.FakeRedis,
 ) -> AsyncGenerator[AsyncClient, None]:
-    """Create an async test client with mocked AgentService."""
+    """Create an async test client with mocked AgentService and auth."""
+    from app.main import app
+
     app.dependency_overrides[get_agent_service] = lambda: mock_agent_service
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    headers = make_auth_headers(fake_redis)
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-async def async_client() -> AsyncGenerator[AsyncClient, None]:
-    """Create an async test client without mocks."""
+async def async_client(
+    fake_redis: fakeredis.aioredis.FakeRedis,
+) -> AsyncGenerator[AsyncClient, None]:
+    """Create an async test client with auth."""
+    from app.main import app
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
+    headers = make_auth_headers(fake_redis)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def unauthed_client() -> AsyncGenerator[AsyncClient, None]:
+    """Create an async test client without auth (for public endpoints)."""
+    from app.main import app
+
+    app.dependency_overrides[get_async_session] = override_get_async_session
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+    app.dependency_overrides.clear()
 
 
 class TestChatEndpoint:
@@ -185,10 +215,10 @@ class TestChatRouterIntegration:
     @pytest.mark.asyncio
     async def test_router_is_registered(
         self,
-        async_client: AsyncClient,
+        unauthed_client: AsyncClient,
     ) -> None:
         """Test that chat router is registered on the app."""
-        response = await async_client.get("/openapi.json")
+        response = await unauthed_client.get("/openapi.json")
         assert response.status_code == 200
 
         openapi = response.json()
@@ -200,9 +230,9 @@ class TestChatRouterIntegration:
     @pytest.mark.asyncio
     async def test_health_check_still_works(
         self,
-        async_client: AsyncClient,
+        unauthed_client: AsyncClient,
     ) -> None:
         """Test that health check endpoint still works after router registration."""
-        response = await async_client.get("/health")
+        response = await unauthed_client.get("/health")
         assert response.status_code == 200
         assert response.json() == {"status": "healthy"}

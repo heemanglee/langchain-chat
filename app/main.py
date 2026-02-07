@@ -6,9 +6,18 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 
+from app.api.common.auth_router import router as auth_router
 from app.api.v1.chat_router import router as chat_router
 from app.core.config import settings
+from app.core.database import Base, engine
+from app.core.exceptions import AppException, app_exception_handler
+from app.core.middleware import AuthMiddleware
+from app.core.redis import close_redis, init_redis
 
 logger = structlog.get_logger()
 
@@ -16,15 +25,19 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup and shutdown events."""
-    # Startup
     logger.info(
         "Starting application",
         app_name=settings.app.name,
         environment=settings.app.env,
         llm_provider=settings.llm.provider,
     )
+    await init_redis()
+    if settings.app.is_development:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
     yield
-    # Shutdown
+    await close_redis()
+    await engine.dispose()
     logger.info("Shutting down application")
 
 
@@ -36,7 +49,17 @@ app = FastAPI(
     debug=settings.app.debug,
 )
 
-# CORS middleware
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+
+# Exception handlers
+app.add_exception_handler(AppException, app_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Middleware (registration order: inner→outer, execution order: outer→inner)
+app.add_middleware(AuthMiddleware)
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.app.is_development else [],
@@ -63,4 +86,5 @@ async def root() -> dict[str, str]:
 
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(chat_router)

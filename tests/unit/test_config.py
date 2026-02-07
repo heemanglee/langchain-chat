@@ -89,7 +89,9 @@ class TestFileUploadConfig:
             config.max_file_size_mb = 20  # type: ignore[misc]
 
     def test_allowed_extensions_list(self) -> None:
-        config = FileUploadConfig(max_file_size_mb=10, allowed_extensions="pdf, txt, md")
+        config = FileUploadConfig(
+            max_file_size_mb=10, allowed_extensions="pdf, txt, md"
+        )
         assert config.allowed_extensions_list == ["pdf", "txt", "md"]
 
     def test_max_file_size_bytes(self) -> None:
@@ -111,6 +113,14 @@ class TestServerConfig:
         assert config.port == 3000
 
 
+@pytest.fixture
+def _set_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set required env vars for Settings instantiation."""
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+
+
+@pytest.mark.usefixtures("_set_required_env")
 class TestSettingsDomainProperties:
     """Settings domain property access tests."""
 
