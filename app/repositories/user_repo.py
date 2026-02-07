@@ -38,6 +38,7 @@ class UserRepository:
         )
         self._session.add(user)
         await self._session.flush()
+        await self._session.refresh(user)
         return user
 
     async def exists_by_email(self, email: str) -> bool:
