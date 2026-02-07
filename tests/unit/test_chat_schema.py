@@ -87,11 +87,13 @@ class TestChatResponse:
         response = ChatResponse(
             message="Hello! How can I help?",
             conversation_id="test-123",
+            session_id=1,
             sources=["https://example.com"],
             created_at=now,
         )
         assert response.message == "Hello! How can I help?"
         assert response.conversation_id == "test-123"
+        assert response.session_id == 1
         assert response.sources == ["https://example.com"]
         assert response.created_at == now
 
@@ -100,6 +102,7 @@ class TestChatResponse:
         response = ChatResponse(
             message="Hello!",
             conversation_id="test-123",
+            session_id=1,
             sources=[],
             created_at=datetime.now(),
         )
@@ -110,6 +113,7 @@ class TestChatResponse:
         response = ChatResponse(
             message="Hello!",
             conversation_id="test-123",
+            session_id=1,
             created_at=datetime.now(),
         )
         assert response.sources == []

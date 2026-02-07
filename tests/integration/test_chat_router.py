@@ -1,5 +1,6 @@
 """Integration tests for chat router."""
 
+import json
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -8,8 +9,8 @@ import fakeredis.aioredis
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.api.v1.chat_router import get_agent_service
 from app.core.database import get_async_session
+from app.dependencies import get_agent_service
 from app.schemas.chat_schema import ChatResponse, StreamEvent
 from app.services.agent_service import AgentService
 from tests.conftest import make_auth_headers, override_get_async_session
@@ -20,18 +21,31 @@ def mock_agent_service() -> MagicMock:
     """Create a mock AgentService."""
     mock = MagicMock(spec=AgentService)
     mock.chat = AsyncMock(
-        return_value=ChatResponse(
-            message="Hello! How can I help you?",
-            conversation_id="test-conv-123",
-            sources=[],
-            created_at=datetime.now(),
+        return_value=(
+            ChatResponse(
+                message="Hello! How can I help you?",
+                conversation_id="test-conv-123",
+                session_id=1,
+                sources=[],
+                created_at=datetime.now(),
+            ),
+            True,
         )
     )
 
     async def mock_stream_chat(request):
         yield StreamEvent(event="token", data="Hello")
         yield StreamEvent(event="token", data=" world")
-        yield StreamEvent(event="done", data="test-conv-123")
+        yield StreamEvent(
+            event="done",
+            data=json.dumps(
+                {
+                    "conversation_id": "test-conv-123",
+                    "session_id": 1,
+                    "is_new_session": True,
+                }
+            ),
+        )
 
     mock.stream_chat = mock_stream_chat
     return mock
@@ -93,7 +107,6 @@ class TestChatEndpoint:
         self,
         async_client_with_mock: AsyncClient,
     ) -> None:
-        """Test successful chat request."""
         response = await async_client_with_mock.post(
             "/api/v1/chat",
             json={"message": "Hello"},
@@ -103,6 +116,7 @@ class TestChatEndpoint:
         data = response.json()["data"]
         assert "message" in data
         assert "conversation_id" in data
+        assert "session_id" in data
         assert "created_at" in data
 
     @pytest.mark.asyncio
@@ -110,7 +124,6 @@ class TestChatEndpoint:
         self,
         async_client_with_mock: AsyncClient,
     ) -> None:
-        """Test chat with existing conversation ID."""
         response = await async_client_with_mock.post(
             "/api/v1/chat",
             json={
@@ -126,7 +139,6 @@ class TestChatEndpoint:
         self,
         async_client: AsyncClient,
     ) -> None:
-        """Test validation error for empty message."""
         response = await async_client.post(
             "/api/v1/chat",
             json={"message": ""},
@@ -139,7 +151,6 @@ class TestChatEndpoint:
         self,
         async_client: AsyncClient,
     ) -> None:
-        """Test validation error for message too long."""
         response = await async_client.post(
             "/api/v1/chat",
             json={"message": "a" * 4001},
@@ -152,7 +163,6 @@ class TestChatEndpoint:
         self,
         async_client_with_mock: AsyncClient,
     ) -> None:
-        """Test chat with web search disabled."""
         response = await async_client_with_mock.post(
             "/api/v1/chat",
             json={
@@ -172,7 +182,6 @@ class TestStreamChatEndpoint:
         self,
         async_client_with_mock: AsyncClient,
     ) -> None:
-        """Test that stream_chat returns Server-Sent Events."""
         response = await async_client_with_mock.post(
             "/api/v1/chat/stream",
             json={"message": "Hello"},
@@ -186,7 +195,6 @@ class TestStreamChatEndpoint:
         self,
         async_client_with_mock: AsyncClient,
     ) -> None:
-        """Test that stream events have correct format."""
         response = await async_client_with_mock.post(
             "/api/v1/chat/stream",
             json={"message": "Hello"},
@@ -200,7 +208,6 @@ class TestStreamChatEndpoint:
         self,
         async_client: AsyncClient,
     ) -> None:
-        """Test validation error for stream chat."""
         response = await async_client.post(
             "/api/v1/chat/stream",
             json={"message": ""},
@@ -217,7 +224,6 @@ class TestChatRouterIntegration:
         self,
         unauthed_client: AsyncClient,
     ) -> None:
-        """Test that chat router is registered on the app."""
         response = await unauthed_client.get("/openapi.json")
         assert response.status_code == 200
 
@@ -232,7 +238,6 @@ class TestChatRouterIntegration:
         self,
         unauthed_client: AsyncClient,
     ) -> None:
-        """Test that health check endpoint still works after router registration."""
         response = await unauthed_client.get("/health")
         assert response.status_code == 200
         data = response.json()

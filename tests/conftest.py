@@ -15,6 +15,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.database import Base
+from app.models.chat_message import ChatMessage  # noqa: F401
+from app.models.chat_session import ChatSession  # noqa: F401
+from app.models.user import User  # noqa: F401
 from app.services.token_service import TokenService
 
 # --- Test DB (SQLite in-memory) ---
