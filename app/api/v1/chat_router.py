@@ -7,11 +7,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.dependencies import get_agent_service
+from app.dependencies import get_agent_service, require_role
 from app.schemas.chat_schema import ChatRequest, ChatResponse
 from app.services.agent_service import AgentService
 
-router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/api/v1/chat",
+    tags=["chat"],
+    dependencies=[Depends(require_role("user", "admin"))],
+)
 
 AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 
