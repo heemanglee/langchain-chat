@@ -26,6 +26,7 @@ class ChatResponse(BaseModel):
 
     message: str
     conversation_id: str
+    session_id: int
     sources: list[str] = Field(default_factory=list)
     created_at: datetime
 

@@ -4,13 +4,14 @@ import json
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 
-from app.dependencies import get_agent_service, require_role
+from app.dependencies import get_agent_service, get_llm, require_role
 from app.schemas.chat_schema import ChatRequest, ChatResponse
 from app.schemas.response_schema import ApiResponse, success_response
 from app.services.agent_service import AgentService
+from app.services.chat_title_task import generate_session_title
 
 router = APIRouter(
     prefix="/api/v1/chat",
@@ -25,34 +26,36 @@ AgentServiceDep = Annotated[AgentService, Depends(get_agent_service)]
 async def chat(
     request: ChatRequest,
     agent_service: AgentServiceDep,
+    background_tasks: BackgroundTasks,
 ) -> dict:
-    """Process a chat request and return a response.
-
-    Args:
-        request: The chat request containing the user message.
-        agent_service: The agent service dependency.
-
-    Returns:
-        ApiResponse wrapping ChatResponse with the agent's reply.
-    """
-    result = await agent_service.chat(request)
+    """Process a chat request and return a response."""
+    result, is_new_session = await agent_service.chat(request)
+    if is_new_session:
+        background_tasks.add_task(
+            generate_session_title,
+            session_id=result.session_id,
+            message=request.message,
+            llm=get_llm(),
+        )
     return success_response(result)
 
 
 async def event_generator(
     agent_service: AgentService,
     request: ChatRequest,
+    background_tasks: BackgroundTasks,
 ) -> AsyncGenerator[str, None]:
-    """Generate Server-Sent Events from agent stream.
-
-    Args:
-        agent_service: The agent service instance.
-        request: The chat request.
-
-    Yields:
-        SSE formatted strings.
-    """
+    """Generate Server-Sent Events from agent stream."""
     async for event in agent_service.stream_chat(request):
+        if event.event == "done":
+            done_data = json.loads(event.data)
+            if done_data.get("is_new_session"):
+                background_tasks.add_task(
+                    generate_session_title,
+                    session_id=done_data["session_id"],
+                    message=request.message,
+                    llm=get_llm(),
+                )
         event_data = event.model_dump()
         yield f"data: {json.dumps(event_data)}\n\n"
 
@@ -61,18 +64,11 @@ async def event_generator(
 async def stream_chat(
     request: ChatRequest,
     agent_service: AgentServiceDep,
+    background_tasks: BackgroundTasks,
 ) -> StreamingResponse:
-    """Stream chat response as Server-Sent Events.
-
-    Args:
-        request: The chat request containing the user message.
-        agent_service: The agent service dependency.
-
-    Returns:
-        StreamingResponse with SSE content.
-    """
+    """Stream chat response as Server-Sent Events."""
     return StreamingResponse(
-        event_generator(agent_service, request),
+        event_generator(agent_service, request, background_tasks),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
