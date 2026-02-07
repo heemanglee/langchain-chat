@@ -20,21 +20,22 @@ def get_llm() -> BaseChatModel:
     Raises:
         ValueError: If an unsupported LLM provider is configured.
     """
-    match settings.llm_provider:
+    llm_config = settings.llm
+    match llm_config.provider:
         case "openai":
             return ChatOpenAI(
-                model=settings.openai_model,
-                api_key=settings.openai_api_key,
+                model=llm_config.openai_model,
+                api_key=llm_config.openai_api_key,
                 streaming=True,
             )
         case "anthropic":
             return ChatAnthropic(  # type: ignore[call-arg]
-                model_name=settings.anthropic_model,
-                api_key=settings.anthropic_api_key,
+                model_name=llm_config.anthropic_model,
+                api_key=llm_config.anthropic_api_key,
                 streaming=True,
             )
         case _:
-            raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
+            raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
 
 
 def get_agent_service() -> AgentService:
@@ -58,5 +59,5 @@ def get_embeddings() -> OpenAIEmbeddings:
         OpenAIEmbeddings: The configured embeddings model.
     """
     return OpenAIEmbeddings(
-        api_key=settings.openai_api_key,
+        api_key=settings.llm.openai_api_key,
     )

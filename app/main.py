@@ -19,9 +19,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info(
         "Starting application",
-        app_name=settings.app_name,
-        environment=settings.app_env,
-        llm_provider=settings.llm_provider,
+        app_name=settings.app.name,
+        environment=settings.app.env,
+        llm_provider=settings.llm.provider,
     )
     yield
     # Shutdown
@@ -29,17 +29,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title=settings.app.name,
     description="LangChain 기반 채팅 서비스 - 웹검색, 파일 처리(RAG) 지원",
     version="0.1.0",
     lifespan=lifespan,
-    debug=settings.debug,
+    debug=settings.app.debug,
 )
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.is_development else [],
+    allow_origins=["*"] if settings.app.is_development else [],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,7 +56,7 @@ async def health_check() -> dict[str, str]:
 async def root() -> dict[str, str]:
     """Root endpoint."""
     return {
-        "app": settings.app_name,
+        "app": settings.app.name,
         "version": "0.1.0",
         "docs": "/docs",
     }
