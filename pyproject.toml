@@ -22,7 +22,7 @@ dependencies = [
     "pypdf>=4.0.0",
     "python-multipart>=0.0.9",
     # Web Search
-    "duckduckgo-search>=6.0.0",
+    "ddgs>=6.0.0",
     # Web UI
     "chainlit>=1.0.0",
     # Utilities
