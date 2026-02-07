@@ -1,7 +1,10 @@
 """Unit tests for agent service."""
 
 import json
+import re
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from langchain_core.messages import (
@@ -65,6 +68,75 @@ class TestAgentServiceInit:
 
     def test_agent_service_has_agent(self, agent_service: AgentService) -> None:
         assert agent_service._agent is not None
+
+    def test_agent_created_with_system_prompt(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            _, kwargs = mock_create_agent.call_args
+            assert "prompt" in kwargs
+            assert callable(kwargs["prompt"])
+
+
+class TestBuildSystemPrompt:
+    """Tests for AgentService._build_system_prompt static method."""
+
+    def _make_state(self, messages: list[HumanMessage] | None = None) -> dict:
+        if messages is None:
+            messages = [HumanMessage(content="Hello")]
+        return {"messages": messages}
+
+    def test_returns_system_message_first(self) -> None:
+        state = self._make_state()
+        result = AgentService._build_system_prompt(state)
+
+        assert isinstance(result[0], SystemMessage)
+
+    def test_contains_current_date(self) -> None:
+        state = self._make_state()
+        result = AgentService._build_system_prompt(state)
+        today = datetime.now(tz=ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
+
+        assert today in result[0].content
+
+    def test_contains_kst_timezone(self) -> None:
+        state = self._make_state()
+        result = AgentService._build_system_prompt(state)
+
+        assert "KST" in result[0].content
+
+    def test_preserves_state_messages(self) -> None:
+        msgs = [HumanMessage(content="Q1"), HumanMessage(content="Q2")]
+        state = self._make_state(msgs)
+        result = AgentService._build_system_prompt(state)
+
+        assert len(result) == 3
+        assert isinstance(result[1], HumanMessage)
+        assert result[1].content == "Q1"
+        assert isinstance(result[2], HumanMessage)
+        assert result[2].content == "Q2"
+
+    def test_contains_time_instruction(self) -> None:
+        state = self._make_state()
+        result = AgentService._build_system_prompt(state)
+        content = result[0].content
+
+        assert "today" in content
+        assert "tomorrow" in content
+        assert "yesterday" in content
+
+    def test_date_format_pattern(self) -> None:
+        state = self._make_state()
+        result = AgentService._build_system_prompt(state)
+        content = result[0].content
+
+        pattern = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} KST"
+        assert re.search(pattern, content) is not None
 
 
 class TestAgentServiceChat:

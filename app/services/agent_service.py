@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -23,6 +24,13 @@ from app.models.chat_message import ChatMessage
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.chat_schema import ChatRequest, ChatResponse, StreamEvent
 from app.tools.web_search import web_search
+
+SYSTEM_PROMPT_TEMPLATE = (
+    "You are a helpful AI assistant.\n\n"
+    "Current date and time: {system_time}\n"
+    "When the user asks about 'today', 'now', 'yesterday', 'tomorrow', "
+    "or any time-relative query, use this date to provide accurate information."
+)
 
 
 class AgentService:
@@ -43,6 +51,7 @@ class AgentService:
             model=self._llm,
             tools=self._tools,
             checkpointer=self._memory,
+            prompt=self._build_system_prompt,
         )
 
     async def chat(self, request: ChatRequest) -> tuple[ChatResponse, bool]:
@@ -176,6 +185,19 @@ class AgentService:
                 )
             )
         await self._chat_repo.create_messages_bulk(records)
+
+    @staticmethod
+    def _build_system_prompt(state: dict) -> list[BaseMessage]:
+        """Build system prompt with current date/time (KST) prepended to state messages."""
+        system_time = datetime.now(tz=ZoneInfo("Asia/Seoul")).strftime(
+            "%Y-%m-%d %H:%M:%S KST"
+        )
+        return [
+            SystemMessage(
+                content=SYSTEM_PROMPT_TEMPLATE.format(system_time=system_time)
+            ),
+            *state["messages"],
+        ]
 
     @staticmethod
     def _build_langchain_messages(
