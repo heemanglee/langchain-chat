@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.database import get_async_session
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.redis import get_redis
+from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
 from app.services.agent_service import AgentService
 from app.services.auth_service import AuthService
@@ -45,12 +46,6 @@ def get_llm() -> BaseChatModel:
             )
         case _:
             raise ValueError(f"Unsupported LLM provider: {llm_config.provider}")
-
-
-def get_agent_service() -> AgentService:
-    """Get AgentService instance."""
-    llm = get_llm()
-    return AgentService(llm=llm)
 
 
 @lru_cache
@@ -84,6 +79,13 @@ def get_user_repository(
 ) -> UserRepository:
     """Get UserRepository bound to the current session."""
     return UserRepository(session)
+
+
+def get_chat_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> ChatRepository:
+    """Get ChatRepository bound to the current session."""
+    return ChatRepository(session)
 
 
 def get_auth_service(
@@ -125,3 +127,12 @@ def require_role(*allowed_roles: str) -> Callable[..., CurrentUser]:
         return current_user
 
     return _check
+
+
+def get_agent_service(
+    chat_repo: ChatRepository = Depends(get_chat_repository),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> AgentService:
+    """Get AgentService with DB persistence and user context."""
+    llm = get_llm()
+    return AgentService(llm=llm, chat_repo=chat_repo, user_id=current_user.id)
