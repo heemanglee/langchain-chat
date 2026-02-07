@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.core.config import settings
 from app.core.database import Base
-from app.models.user import User  # noqa: F401 — register model metadata
+from app.models.chat_message import ChatMessage  # noqa: F401
+from app.models.chat_session import ChatSession  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 config = context.config
 
