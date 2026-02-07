@@ -1,14 +1,27 @@
 """Application configuration using Pydantic Settings V2."""
 
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.settings import (
+    AppConfig,
+    FileUploadConfig,
+    LLMConfig,
+    ServerConfig,
+    VectorStoreConfig,
+)
+
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Application settings loaded from environment variables.
+
+    Flat fields are loaded directly from environment variables.
+    Domain properties provide grouped access (e.g. settings.llm.provider).
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -99,20 +112,69 @@ class Settings(BaseSettings):
         description="Server port",
     )
 
+    # --- Domain properties ---
+
+    @cached_property
+    def llm(self) -> LLMConfig:
+        """LLM provider configuration."""
+        return LLMConfig(
+            provider=self.llm_provider,
+            openai_api_key=self.openai_api_key,
+            openai_model=self.openai_model,
+            anthropic_api_key=self.anthropic_api_key,
+            anthropic_model=self.anthropic_model,
+        )
+
+    @cached_property
+    def app(self) -> AppConfig:
+        """Application environment configuration."""
+        return AppConfig(
+            name=self.app_name,
+            env=self.app_env,
+            debug=self.debug,
+        )
+
+    @cached_property
+    def vector_store(self) -> VectorStoreConfig:
+        """Vector store configuration."""
+        return VectorStoreConfig(
+            path=self.vector_store_path,
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+
+    @cached_property
+    def file_upload(self) -> FileUploadConfig:
+        """File upload configuration."""
+        return FileUploadConfig(
+            max_file_size_mb=self.max_file_size_mb,
+            allowed_extensions=self.allowed_extensions,
+        )
+
+    @cached_property
+    def server(self) -> ServerConfig:
+        """Server configuration."""
+        return ServerConfig(
+            host=self.host,
+            port=self.port,
+        )
+
+    # --- Convenience properties (delegate to domain configs) ---
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         """Get allowed extensions as a list."""
-        return [ext.strip().lower() for ext in self.allowed_extensions.split(",")]
+        return self.file_upload.allowed_extensions_list
 
     @property
     def max_file_size_bytes(self) -> int:
         """Get maximum file size in bytes."""
-        return self.max_file_size_mb * 1024 * 1024
+        return self.file_upload.max_file_size_bytes
 
     @property
     def is_development(self) -> bool:
         """Check if running in development mode."""
-        return self.app_env == "development"
+        return self.app.is_development
 
 
 # Global settings instance
