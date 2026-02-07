@@ -95,9 +95,7 @@ class AuthMiddleware:
     @staticmethod
     async def _send_error(send: Send, status: int, code: str, message: str) -> None:
         """Send a JSON error response directly."""
-        body = json.dumps(
-            {"success": False, "error": {"code": code, "message": message}}
-        ).encode()
+        body = json.dumps({"status": status, "message": message, "code": code}).encode()
 
         await send(
             {

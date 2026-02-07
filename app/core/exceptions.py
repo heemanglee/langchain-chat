@@ -1,6 +1,7 @@
 """Application exception classes and handlers."""
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -128,10 +129,22 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "success": False,
-            "error": {
-                "code": exc.code,
-                "message": exc.message,
-            },
+            "status": exc.status_code,
+            "message": exc.message,
+            "code": exc.code,
+        },
+    )
+
+
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Handler for Pydantic request validation errors."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": 422,
+            "message": str(exc),
+            "code": "VALIDATION_ERROR",
         },
     )
