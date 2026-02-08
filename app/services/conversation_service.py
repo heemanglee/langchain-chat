@@ -8,7 +8,9 @@ from app.core.exceptions import AppException, AuthorizationError, SessionNotFoun
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.conversation_schema import (
     ConversationListResponse,
+    ConversationMessagesResponse,
     ConversationSummary,
+    MessageResponse,
 )
 
 
@@ -42,6 +44,19 @@ class ConversationService:
     def __init__(self, chat_repo: ChatRepository, user_id: int) -> None:
         self._chat_repo = chat_repo
         self._user_id = user_id
+
+    async def get_messages(self, conversation_id: str) -> ConversationMessagesResponse:
+        """Retrieve all messages for a conversation owned by the current user."""
+        session = await self._chat_repo.find_session_by_conversation_id(conversation_id)
+        if session is None:
+            raise SessionNotFoundError()
+        if session.user_id != self._user_id:
+            raise AuthorizationError(message="Not authorized to view this conversation")
+        messages = await self._chat_repo.find_messages_by_session_id(session.id)
+        return ConversationMessagesResponse(
+            conversation_id=conversation_id,
+            messages=[MessageResponse.model_validate(msg) for msg in messages],
+        )
 
     async def update_title(self, conversation_id: str, title: str) -> None:
         """Update the title of a conversation owned by the current user."""
