@@ -13,6 +13,7 @@ LangChain 기반 채팅 서비스 - 웹검색, 파일 처리(RAG) 지원
 ## 요구사항
 
 - Python 3.11 이상
+- [uv](https://docs.astral.sh/uv/) 패키지 매니저
 - OpenAI API Key 또는 Anthropic API Key
 
 ## 설치
@@ -24,21 +25,13 @@ git clone https://github.com/your-repo/langchain-chat.git
 cd langchain-chat
 ```
 
-### 2. 가상환경 생성 및 활성화
+### 2. 의존성 설치
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate  # Windows
+uv sync --extra dev
 ```
 
-### 3. 의존성 설치
-
-```bash
-pip install -e ".[dev]"
-```
-
-### 4. 환경변수 설정
+### 3. 환경변수 설정
 
 ```bash
 cp .env.example .env
@@ -60,7 +53,7 @@ cp .env.example .env
 ### FastAPI 서버
 
 ```bash
-uvicorn app.main:app --reload --port 8004
+uv run python -m uvicorn app.main:app --reload --port 8004
 ```
 
 API 문서: http://localhost:8004/docs
@@ -68,7 +61,7 @@ API 문서: http://localhost:8004/docs
 ### Chainlit 웹 UI
 
 ```bash
-chainlit run chainlit_app.py -w
+uv run chainlit run chainlit_app.py -w
 ```
 
 ## 프로젝트 구조
@@ -94,18 +87,18 @@ langchain-chat/
 ### 테스트 실행
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ### 린트 & 포맷
 
 ```bash
-ruff check .
-ruff format .
+uv run ruff check .
+uv run ruff format .
 ```
 
 ### 타입 체크
 
 ```bash
-mypy app/
+uv run mypy app/
 ```
