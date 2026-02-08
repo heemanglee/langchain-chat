@@ -1,8 +1,8 @@
 """add composite index on chat_sessions(user_id, updated_at)
 
-Revision ID: aa47109e820f
+Revision ID: ab24cb2d24e5
 Revises: 207e161c145e
-Create Date: 2026-02-08 10:05:42.527461
+Create Date: 2026-02-08 10:06:51.178727
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'aa47109e820f'
+revision: str = 'ab24cb2d24e5'
 down_revision: Union[str, Sequence[str], None] = '207e161c145e'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
