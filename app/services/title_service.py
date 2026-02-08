@@ -10,11 +10,11 @@ class TitleService:
         self._llm = llm
 
     async def generate_title(self, message: str) -> str:
-        """Summarise a user message into a title of at most 10 characters."""
+        """Summarise a user message into a title of at most 20 characters."""
         prompt = (
-            "다음 사용자 질문을 10자 이내의 한국어 제목으로 요약해. "
+            "다음 사용자 질문을 20자 이내의 한국어 제목으로 요약해. "
             "제목만 출력해:\n"
             f"{message}"
         )
         response = await self._llm.ainvoke(prompt)
-        return str(response.content).strip()[:10]
+        return str(response.content).strip()[:20]
