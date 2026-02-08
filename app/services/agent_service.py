@@ -120,9 +120,6 @@ class AgentService:
 
         input_messages = history + [HumanMessage(content=request.message)]
 
-        collected_content: list[str] = []
-        tool_messages: list[dict[str, Any]] = []
-
         async for event in self._agent.astream_events(
             {"messages": input_messages},
             config=config,
@@ -133,10 +130,11 @@ class AgentService:
             if stream_event:
                 yield stream_event
 
-            self._collect_stream_data(event_dict, collected_content, tool_messages)
-
-        ai_content = "".join(collected_content)
-        new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
+        state = await self._agent.aget_state(config)
+        all_messages = state.values.get("messages", [])
+        new_messages = self._convert_messages_to_dicts(
+            all_messages[len(input_messages):]
+        )
         records = await self._save_messages(session.id, request.message, new_messages)
 
         user_message_id, ai_message_id = self._extract_message_ids(records)
@@ -184,9 +182,6 @@ class AgentService:
             "configurable": {"thread_id": conversation_id},
         }
 
-        collected_content: list[str] = []
-        tool_messages: list[dict[str, Any]] = []
-
         async for event in self._agent.astream_events(
             {"messages": history},
             config=config,
@@ -197,10 +192,11 @@ class AgentService:
             if stream_event:
                 yield stream_event
 
-            self._collect_stream_data(event_dict, collected_content, tool_messages)
-
-        ai_content = "".join(collected_content)
-        new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
+        state = await self._agent.aget_state(config)
+        all_messages = state.values.get("messages", [])
+        new_messages = self._convert_messages_to_dicts(
+            all_messages[len(history):]
+        )
         records = await self._save_ai_messages(session.id, new_messages)
 
         ai_message_id = self._extract_ai_message_id(records)
@@ -241,9 +237,6 @@ class AgentService:
             "configurable": {"thread_id": conversation_id},
         }
 
-        collected_content: list[str] = []
-        tool_messages: list[dict[str, Any]] = []
-
         async for event in self._agent.astream_events(
             {"messages": input_messages},
             config=config,
@@ -254,10 +247,11 @@ class AgentService:
             if stream_event:
                 yield stream_event
 
-            self._collect_stream_data(event_dict, collected_content, tool_messages)
-
-        ai_content = "".join(collected_content)
-        new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
+        state = await self._agent.aget_state(config)
+        all_messages = state.values.get("messages", [])
+        new_messages = self._convert_messages_to_dicts(
+            all_messages[len(input_messages):]
+        )
         records = await self._save_messages(session.id, new_content, new_messages)
 
         user_message_id, ai_message_id = self._extract_message_ids(records)
@@ -324,7 +318,8 @@ class AgentService:
     async def _load_history(self, session_id: int) -> list[BaseMessage]:
         """Load previous messages from DB and convert to LangChain format."""
         db_messages = await self._chat_repo.find_messages_by_session_id(session_id)
-        return self._build_langchain_messages(db_messages)
+        messages = self._build_langchain_messages(db_messages)
+        return self._sanitize_message_sequence(messages)
 
     async def _save_messages(
         self,
@@ -445,6 +440,30 @@ class AgentService:
         return messages
 
     @staticmethod
+    def _sanitize_message_sequence(
+        messages: list[BaseMessage],
+    ) -> list[BaseMessage]:
+        """Remove orphaned tool messages that lack a preceding AIMessage with tool_calls.
+
+        Handles backward compatibility for conversations where intermediate
+        AI messages with tool_calls were not saved to the database.
+        """
+        result: list[BaseMessage] = []
+        for msg in messages:
+            if isinstance(msg, ToolMessage):
+                has_valid_predecessor = False
+                for prev in reversed(result):
+                    if isinstance(prev, ToolMessage):
+                        continue
+                    if isinstance(prev, AIMessage) and prev.tool_calls:
+                        has_valid_predecessor = True
+                    break
+                if not has_valid_predecessor:
+                    continue
+            result.append(msg)
+        return result
+
+    @staticmethod
     def _extract_new_messages(
         all_messages: list[BaseMessage],
         history_len: int,
@@ -480,41 +499,29 @@ class AgentService:
         return result
 
     @staticmethod
-    def _collect_stream_data(
-        event: dict[str, Any],
-        collected_content: list[str],
-        tool_messages: list[dict[str, Any]],
-    ) -> None:
-        """Accumulate data from stream events for later DB persistence."""
-        event_type = event.get("event", "")
-
-        if event_type == "on_chat_model_stream":
-            chunk = event.get("data", {}).get("chunk")
-            if chunk and isinstance(chunk, AIMessage) and chunk.content:
-                collected_content.append(str(chunk.content))
-
-        elif event_type == "on_tool_end":
-            output = event.get("data", {}).get("output", "")
-            tool_messages.append(
-                {
-                    "role": "tool",
-                    "content": str(output),
-                    "tool_call_id": event.get("run_id", ""),
-                    "tool_name": event.get("name", ""),
-                }
-            )
-
-    @staticmethod
-    def _build_new_messages_from_stream(
-        ai_content: str,
-        tool_messages: list[dict[str, Any]],
+    def _convert_messages_to_dicts(
+        messages: list[BaseMessage],
     ) -> list[dict[str, Any]]:
-        """Build the list of new messages from streamed data."""
+        """Convert LangChain message objects to dict format for DB persistence."""
         result: list[dict[str, Any]] = []
-        for tool_msg in tool_messages:
-            result.append(tool_msg)
-        if ai_content:
-            result.append({"role": "ai", "content": ai_content})
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                entry: dict[str, Any] = {
+                    "role": "ai",
+                    "content": str(msg.content),
+                }
+                if msg.tool_calls:
+                    entry["tool_calls_json"] = json.dumps(msg.tool_calls)
+                result.append(entry)
+            elif isinstance(msg, ToolMessage):
+                result.append(
+                    {
+                        "role": "tool",
+                        "content": str(msg.content),
+                        "tool_call_id": msg.tool_call_id,
+                        "tool_name": msg.name,
+                    }
+                )
         return result
 
     def _process_stream_event(self, event: dict[str, Any]) -> StreamEvent | None:
