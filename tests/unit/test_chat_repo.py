@@ -231,6 +231,107 @@ class TestCreateMessagesBulk:
         assert len(messages) == 3
 
 
+class TestFindMessageById:
+    """Tests for ChatRepository.find_message_by_id."""
+
+    @pytest.mark.asyncio
+    async def test_find_existing_message(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        session = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-find-msg"
+        )
+        msg = await chat_repo.create_message(
+            session_id=session.id, role="human", content="Hello"
+        )
+
+        found = await chat_repo.find_message_by_id(msg.id)
+        assert found is not None
+        assert found.id == msg.id
+        assert found.content == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_find_nonexistent_message(self, chat_repo: ChatRepository) -> None:
+        found = await chat_repo.find_message_by_id(99999)
+        assert found is None
+
+
+class TestDeleteMessagesFromId:
+    """Tests for ChatRepository.delete_messages_from_id."""
+
+    @pytest.mark.asyncio
+    async def test_delete_messages_from_id(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        session = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-del"
+        )
+
+        await chat_repo.create_message(
+            session_id=session.id, role="human", content="Q1"
+        )
+        await chat_repo.create_message(session_id=session.id, role="ai", content="A1")
+        msg3 = await chat_repo.create_message(
+            session_id=session.id, role="human", content="Q2"
+        )
+        await chat_repo.create_message(session_id=session.id, role="ai", content="A2")
+
+        # Delete from msg3 (Q2) onwards
+        await chat_repo.delete_messages_from_id(session.id, msg3.id)
+
+        remaining = await chat_repo.find_messages_by_session_id(session.id)
+        assert len(remaining) == 2
+        assert remaining[0].content == "Q1"
+        assert remaining[1].content == "A1"
+
+    @pytest.mark.asyncio
+    async def test_delete_from_first_message(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        session = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-del-all"
+        )
+
+        msg1 = await chat_repo.create_message(
+            session_id=session.id, role="human", content="Q1"
+        )
+        await chat_repo.create_message(session_id=session.id, role="ai", content="A1")
+
+        await chat_repo.delete_messages_from_id(session.id, msg1.id)
+
+        remaining = await chat_repo.find_messages_by_session_id(session.id)
+        assert len(remaining) == 0
+
+    @pytest.mark.asyncio
+    async def test_delete_does_not_affect_other_sessions(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        session1 = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-s1"
+        )
+        session2 = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-s2"
+        )
+
+        msg1 = await chat_repo.create_message(
+            session_id=session1.id, role="human", content="S1-Q1"
+        )
+        await chat_repo.create_message(
+            session_id=session2.id, role="human", content="S2-Q1"
+        )
+
+        await chat_repo.delete_messages_from_id(session1.id, msg1.id)
+
+        s1_msgs = await chat_repo.find_messages_by_session_id(session1.id)
+        s2_msgs = await chat_repo.find_messages_by_session_id(session2.id)
+        assert len(s1_msgs) == 0
+        assert len(s2_msgs) == 1
+
+
 class TestUpdateSessionTitle:
     """Tests for ChatRepository.update_session_title."""
 

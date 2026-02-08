@@ -1,11 +1,11 @@
 """Unit tests for ConversationService."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, AuthorizationError, SessionNotFoundError
 from app.repositories.chat_repo import ChatRepository, SessionWithPreview
 from app.services.conversation_service import (
     ConversationService,
@@ -144,3 +144,51 @@ class TestConversationService:
 
         result = await service.list_conversations(limit=20)
         assert result.conversations[0].last_message_preview == "안녕하세요"
+
+
+class TestUpdateTitle:
+    """Tests for ConversationService.update_title."""
+
+    @pytest.fixture
+    def mock_repo(self) -> AsyncMock:
+        return AsyncMock(spec=ChatRepository)
+
+    @pytest.fixture
+    def service(self, mock_repo: AsyncMock) -> ConversationService:
+        return ConversationService(chat_repo=mock_repo, user_id=1)
+
+    @pytest.mark.asyncio
+    async def test_update_title_success(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 10
+        session_mock.user_id = 1
+        mock_repo.find_session_by_conversation_id.return_value = session_mock
+
+        await service.update_title("conv-123", "새 제목")
+
+        mock_repo.update_session_title.assert_called_once_with(10, "새 제목")
+
+    @pytest.mark.asyncio
+    async def test_update_title_session_not_found(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        mock_repo.find_session_by_conversation_id.return_value = None
+
+        with pytest.raises(SessionNotFoundError):
+            await service.update_title("non-existent", "새 제목")
+
+    @pytest.mark.asyncio
+    async def test_update_title_not_authorized(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 10
+        session_mock.user_id = 999  # Different user
+        mock_repo.find_session_by_conversation_id.return_value = session_mock
+
+        with pytest.raises(AuthorizationError):
+            await service.update_title("conv-123", "새 제목")
+
+        mock_repo.update_session_title.assert_not_called()

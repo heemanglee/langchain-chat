@@ -14,6 +14,12 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
+from app.core.exceptions import (
+    AppException,
+    AuthorizationError,
+    MessageNotFoundError,
+    SessionNotFoundError,
+)
 from app.models.chat_message import ChatMessage
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.chat_schema import ChatRequest, ChatResponse, StreamEvent
@@ -316,6 +322,35 @@ class TestAgentServiceStreamChat:
             assert events[-1].event == "done"
 
     @pytest.mark.asyncio
+    async def test_stream_chat_done_event_includes_message_ids(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_agent = MagicMock()
+
+            async def mock_astream_events(*args, **kwargs):
+                yield {
+                    "event": "on_chat_model_stream",
+                    "data": {"chunk": AIMessage(content="Hi")},
+                }
+
+            mock_agent.astream_events = mock_astream_events
+            mock_create_agent.return_value = mock_agent
+
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+            request = ChatRequest(message="Hello")
+
+            events = []
+            async for event in service.stream_chat(request):
+                events.append(event)
+
+            done_data = json.loads(events[-1].data)
+            assert "user_message_id" in done_data
+            assert "ai_message_id" in done_data
+
+    @pytest.mark.asyncio
     async def test_stream_chat_yields_token_events(
         self, mock_llm: MagicMock, mock_chat_repo: MagicMock
     ) -> None:
@@ -407,6 +442,289 @@ class TestAgentServiceStreamChat:
                 pass
 
             mock_chat_repo.create_messages_bulk.assert_called_once()
+
+
+class TestValidateMessageOwnership:
+    """Tests for AgentService._validate_message_ownership."""
+
+    @pytest.mark.asyncio
+    async def test_session_not_found(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(return_value=None)
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            with pytest.raises(SessionNotFoundError):
+                await service._validate_message_ownership("conv-x", 1, "ai")
+
+    @pytest.mark.asyncio
+    async def test_not_authorized(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 999
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            with pytest.raises(AuthorizationError):
+                await service._validate_message_ownership("conv-x", 1, "ai")
+
+    @pytest.mark.asyncio
+    async def test_message_not_found(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=None)
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            with pytest.raises(MessageNotFoundError):
+                await service._validate_message_ownership("conv-x", 1, "ai")
+
+    @pytest.mark.asyncio
+    async def test_message_wrong_session(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        msg_mock = MagicMock()
+        msg_mock.session_id = 999  # Different session
+        msg_mock.role = "ai"
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=msg_mock)
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            with pytest.raises(AppException) as exc_info:
+                await service._validate_message_ownership("conv-x", 1, "ai")
+            assert exc_info.value.code == "MESSAGE_OWNERSHIP_ERROR"
+
+    @pytest.mark.asyncio
+    async def test_wrong_message_role(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        msg_mock = MagicMock()
+        msg_mock.session_id = 1
+        msg_mock.role = "human"  # Expected "ai"
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=msg_mock)
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            with pytest.raises(AppException) as exc_info:
+                await service._validate_message_ownership("conv-x", 1, "ai")
+            assert exc_info.value.code == "INVALID_MESSAGE_ROLE"
+
+    @pytest.mark.asyncio
+    async def test_valid_ownership(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        msg_mock = MagicMock()
+        msg_mock.session_id = 1
+        msg_mock.role = "ai"
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=msg_mock)
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_create_agent.return_value = MagicMock()
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            session, message = await service._validate_message_ownership(
+                "conv-x", 1, "ai"
+            )
+            assert session is session_mock
+            assert message is msg_mock
+
+
+class TestStreamRegenerate:
+    """Tests for AgentService.stream_regenerate."""
+
+    @pytest.mark.asyncio
+    async def test_stream_regenerate_yields_events(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        msg_mock = MagicMock()
+        msg_mock.session_id = 1
+        msg_mock.role = "ai"
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=msg_mock)
+        mock_chat_repo.delete_messages_from_id = AsyncMock()
+
+        human_msg = ChatMessage(id=1, session_id=1, role="human", content="Hello")
+        mock_chat_repo.find_messages_by_session_id = AsyncMock(return_value=[human_msg])
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_agent = MagicMock()
+
+            async def mock_astream_events(*args, **kwargs):
+                yield {
+                    "event": "on_chat_model_stream",
+                    "data": {"chunk": AIMessage(content="Regenerated!")},
+                }
+
+            mock_agent.astream_events = mock_astream_events
+            mock_create_agent.return_value = mock_agent
+
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            events = []
+            async for event in service.stream_regenerate("conv-123", 2):
+                events.append(event)
+
+            assert len(events) >= 2  # at least token + done
+            assert events[-1].event == "done"
+
+            done_data = json.loads(events[-1].data)
+            assert "user_message_id" in done_data
+            assert "ai_message_id" in done_data
+
+
+class TestStreamEdit:
+    """Tests for AgentService.stream_edit."""
+
+    @pytest.mark.asyncio
+    async def test_stream_edit_yields_events(
+        self, mock_llm: MagicMock, mock_chat_repo: MagicMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 1
+        session_mock.user_id = 1
+        mock_chat_repo.find_session_by_conversation_id = AsyncMock(
+            return_value=session_mock
+        )
+
+        msg_mock = MagicMock()
+        msg_mock.session_id = 1
+        msg_mock.role = "human"
+        mock_chat_repo.find_message_by_id = AsyncMock(return_value=msg_mock)
+        mock_chat_repo.delete_messages_from_id = AsyncMock()
+        mock_chat_repo.find_messages_by_session_id = AsyncMock(return_value=[])
+
+        with patch(
+            "app.services.agent_service.create_react_agent"
+        ) as mock_create_agent:
+            mock_agent = MagicMock()
+
+            async def mock_astream_events(*args, **kwargs):
+                yield {
+                    "event": "on_chat_model_stream",
+                    "data": {"chunk": AIMessage(content="Edited response!")},
+                }
+
+            mock_agent.astream_events = mock_astream_events
+            mock_create_agent.return_value = mock_agent
+
+            service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
+
+            events = []
+            async for event in service.stream_edit("conv-123", 1, "New question"):
+                events.append(event)
+
+            assert len(events) >= 2
+            assert events[-1].event == "done"
+
+            done_data = json.loads(events[-1].data)
+            assert "user_message_id" in done_data
+            assert "ai_message_id" in done_data
+
+
+class TestExtractMessageIds:
+    """Tests for AgentService._extract_message_ids."""
+
+    def test_extract_both_ids(self) -> None:
+        records = [
+            ChatMessage(id=10, session_id=1, role="human", content="Q"),
+            ChatMessage(id=11, session_id=1, role="ai", content="A"),
+        ]
+        user_id, ai_id = AgentService._extract_message_ids(records)
+        assert user_id == 10
+        assert ai_id == 11
+
+    def test_extract_no_ai_message(self) -> None:
+        records = [
+            ChatMessage(id=10, session_id=1, role="human", content="Q"),
+        ]
+        user_id, ai_id = AgentService._extract_message_ids(records)
+        assert user_id == 10
+        assert ai_id is None
+
+    def test_extract_empty_records(self) -> None:
+        user_id, ai_id = AgentService._extract_message_ids([])
+        assert user_id is None
+        assert ai_id is None
+
+
+class TestExtractAiMessageId:
+    """Tests for AgentService._extract_ai_message_id."""
+
+    def test_extract_ai_id(self) -> None:
+        records = [
+            ChatMessage(id=5, session_id=1, role="tool", content="result"),
+            ChatMessage(id=6, session_id=1, role="ai", content="Answer"),
+        ]
+        assert AgentService._extract_ai_message_id(records) == 6
+
+    def test_no_ai_message(self) -> None:
+        records = [
+            ChatMessage(id=5, session_id=1, role="tool", content="result"),
+        ]
+        assert AgentService._extract_ai_message_id(records) is None
 
 
 class TestBuildLangchainMessages:

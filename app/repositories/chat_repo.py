@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
@@ -155,6 +155,26 @@ class ChatRepository:
             )
             for row in result
         ]
+
+    async def find_message_by_id(self, message_id: int) -> ChatMessage | None:
+        """Find a chat message by its primary key."""
+        result = await self._session.execute(
+            select(ChatMessage).where(ChatMessage.id == message_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_messages_from_id(
+        self, session_id: int, from_message_id: int
+    ) -> None:
+        """Hard-delete all messages in a session with id >= from_message_id."""
+        await self._session.execute(
+            delete(ChatMessage).where(
+                and_(
+                    ChatMessage.session_id == session_id,
+                    ChatMessage.id >= from_message_id,
+                )
+            )
+        )
 
     async def update_session_title(self, session_id: int, title: str) -> None:
         """Update the title of an existing session."""

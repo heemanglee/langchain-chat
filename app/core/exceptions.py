@@ -107,6 +107,28 @@ class UserNotFoundError(AppException):
         )
 
 
+class SessionNotFoundError(AppException):
+    """Chat session not found."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Chat session not found",
+            code="SESSION_NOT_FOUND",
+            status_code=404,
+        )
+
+
+class MessageNotFoundError(AppException):
+    """Chat message not found."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message="Chat message not found",
+            code="MESSAGE_NOT_FOUND",
+            status_code=404,
+        )
+
+
 # --- Rate Limit (429) ---
 
 

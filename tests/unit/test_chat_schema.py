@@ -9,6 +9,8 @@ from app.schemas.chat_schema import (
     ChatMessage,
     ChatRequest,
     ChatResponse,
+    EditMessageRequest,
+    RegenerateRequest,
     StreamEvent,
 )
 
@@ -117,6 +119,77 @@ class TestChatResponse:
             created_at=datetime.now(),
         )
         assert response.sources == []
+
+
+class TestRegenerateRequest:
+    """Tests for RegenerateRequest schema."""
+
+    def test_valid_request(self) -> None:
+        request = RegenerateRequest(message_id=5, conversation_id="conv-123")
+        assert request.message_id == 5
+        assert request.conversation_id == "conv-123"
+
+    def test_empty_conversation_id_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            RegenerateRequest(message_id=5, conversation_id="")
+
+    def test_missing_message_id_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            RegenerateRequest(conversation_id="conv-123")  # type: ignore[call-arg]
+
+    def test_missing_conversation_id_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            RegenerateRequest(message_id=5)  # type: ignore[call-arg]
+
+
+class TestEditMessageRequest:
+    """Tests for EditMessageRequest schema."""
+
+    def test_valid_request(self) -> None:
+        request = EditMessageRequest(
+            message_id=3,
+            conversation_id="conv-456",
+            message="Updated question",
+        )
+        assert request.message_id == 3
+        assert request.conversation_id == "conv-456"
+        assert request.message == "Updated question"
+
+    def test_empty_message_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            EditMessageRequest(
+                message_id=3,
+                conversation_id="conv-456",
+                message="",
+            )
+
+    def test_message_too_long_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            EditMessageRequest(
+                message_id=3,
+                conversation_id="conv-456",
+                message="a" * 4001,
+            )
+
+    def test_message_at_max_length_succeeds(self) -> None:
+        request = EditMessageRequest(
+            message_id=3,
+            conversation_id="conv-456",
+            message="a" * 4000,
+        )
+        assert len(request.message) == 4000
+
+    def test_empty_conversation_id_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            EditMessageRequest(
+                message_id=3,
+                conversation_id="",
+                message="Hello",
+            )
+
+    def test_missing_fields_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            EditMessageRequest(message_id=3)  # type: ignore[call-arg]
 
 
 class TestStreamEvent:

@@ -10,7 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.dependencies import get_agent_service, get_llm, require_role
-from app.schemas.chat_schema import ChatRequest, ChatResponse
+from app.schemas.chat_schema import (
+    ChatRequest,
+    ChatResponse,
+    EditMessageRequest,
+    RegenerateRequest,
+)
 from app.schemas.response_schema import ApiResponse, success_response
 from app.services.agent_service import AgentService
 from app.services.chat_title_task import generate_session_title
@@ -78,6 +83,67 @@ async def stream_chat(
     """Stream chat response as Server-Sent Events."""
     return StreamingResponse(
         event_generator(agent_service, request, background_tasks, session),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def regenerate_event_generator(
+    agent_service: AgentService,
+    request: RegenerateRequest,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events for AI response regeneration."""
+    async for event in agent_service.stream_regenerate(
+        conversation_id=request.conversation_id,
+        message_id=request.message_id,
+    ):
+        event_data = event.model_dump()
+        yield f"data: {json.dumps(event_data)}\n\n"
+
+
+@router.post("/regenerate")
+async def regenerate(
+    request: RegenerateRequest,
+    agent_service: AgentServiceDep,
+) -> StreamingResponse:
+    """Regenerate an AI response as Server-Sent Events."""
+    return StreamingResponse(
+        regenerate_event_generator(agent_service, request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def edit_event_generator(
+    agent_service: AgentService,
+    request: EditMessageRequest,
+) -> AsyncGenerator[str, None]:
+    """Generate SSE events for user message edit."""
+    async for event in agent_service.stream_edit(
+        conversation_id=request.conversation_id,
+        message_id=request.message_id,
+        new_content=request.message,
+    ):
+        event_data = event.model_dump()
+        yield f"data: {json.dumps(event_data)}\n\n"
+
+
+@router.post("/edit")
+async def edit_message(
+    request: EditMessageRequest,
+    agent_service: AgentServiceDep,
+) -> StreamingResponse:
+    """Edit a user message and re-invoke the agent as Server-Sent Events."""
+    return StreamingResponse(
+        edit_event_generator(agent_service, request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

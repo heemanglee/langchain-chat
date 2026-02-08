@@ -20,7 +20,14 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
+from app.core.exceptions import (
+    AppException,
+    AuthorizationError,
+    MessageNotFoundError,
+    SessionNotFoundError,
+)
 from app.models.chat_message import ChatMessage
+from app.models.chat_session import ChatSession
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.chat_schema import ChatRequest, ChatResponse, StreamEvent
 from app.tools.web_search import web_search
@@ -130,7 +137,9 @@ class AgentService:
 
         ai_content = "".join(collected_content)
         new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
-        await self._save_messages(session.id, request.message, new_messages)
+        records = await self._save_messages(session.id, request.message, new_messages)
+
+        user_message_id, ai_message_id = self._extract_message_ids(records)
 
         yield StreamEvent(
             event="done",
@@ -139,9 +148,167 @@ class AgentService:
                     "conversation_id": conversation_id,
                     "session_id": session.id,
                     "is_new_session": is_new,
+                    "user_message_id": user_message_id,
+                    "ai_message_id": ai_message_id,
                 }
             ),
         )
+
+    async def stream_regenerate(
+        self,
+        conversation_id: str,
+        message_id: int,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Regenerate an AI response by deleting it and re-invoking the agent.
+
+        Yields:
+            StreamEvent objects for each streaming event.
+        """
+        session, _message = await self._validate_message_ownership(
+            conversation_id, message_id, expected_role="ai"
+        )
+
+        await self._chat_repo.delete_messages_from_id(session.id, message_id)
+
+        history = await self._load_history(session.id)
+        if not history:
+            raise AppException(
+                message="No messages to regenerate from",
+                code="NO_MESSAGES",
+                status_code=400,
+            )
+
+        last_human_message_id = await self._find_last_human_message_id(session.id)
+
+        config: RunnableConfig = {
+            "configurable": {"thread_id": conversation_id},
+        }
+
+        collected_content: list[str] = []
+        tool_messages: list[dict[str, Any]] = []
+
+        async for event in self._agent.astream_events(
+            {"messages": history},
+            config=config,
+            version="v2",
+        ):
+            event_dict = dict(event)
+            stream_event = self._process_stream_event(event_dict)
+            if stream_event:
+                yield stream_event
+
+            self._collect_stream_data(event_dict, collected_content, tool_messages)
+
+        ai_content = "".join(collected_content)
+        new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
+        records = await self._save_ai_messages(session.id, new_messages)
+
+        ai_message_id = self._extract_ai_message_id(records)
+
+        yield StreamEvent(
+            event="done",
+            data=json.dumps(
+                {
+                    "conversation_id": conversation_id,
+                    "session_id": session.id,
+                    "user_message_id": last_human_message_id,
+                    "ai_message_id": ai_message_id,
+                }
+            ),
+        )
+
+    async def stream_edit(
+        self,
+        conversation_id: str,
+        message_id: int,
+        new_content: str,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Edit a user message and re-invoke the agent from that point.
+
+        Yields:
+            StreamEvent objects for each streaming event.
+        """
+        session, _message = await self._validate_message_ownership(
+            conversation_id, message_id, expected_role="human"
+        )
+
+        await self._chat_repo.delete_messages_from_id(session.id, message_id)
+
+        history = await self._load_history(session.id)
+        input_messages = history + [HumanMessage(content=new_content)]
+
+        config: RunnableConfig = {
+            "configurable": {"thread_id": conversation_id},
+        }
+
+        collected_content: list[str] = []
+        tool_messages: list[dict[str, Any]] = []
+
+        async for event in self._agent.astream_events(
+            {"messages": input_messages},
+            config=config,
+            version="v2",
+        ):
+            event_dict = dict(event)
+            stream_event = self._process_stream_event(event_dict)
+            if stream_event:
+                yield stream_event
+
+            self._collect_stream_data(event_dict, collected_content, tool_messages)
+
+        ai_content = "".join(collected_content)
+        new_messages = self._build_new_messages_from_stream(ai_content, tool_messages)
+        records = await self._save_messages(session.id, new_content, new_messages)
+
+        user_message_id, ai_message_id = self._extract_message_ids(records)
+
+        yield StreamEvent(
+            event="done",
+            data=json.dumps(
+                {
+                    "conversation_id": conversation_id,
+                    "session_id": session.id,
+                    "user_message_id": user_message_id,
+                    "ai_message_id": ai_message_id,
+                }
+            ),
+        )
+
+    async def _validate_message_ownership(
+        self,
+        conversation_id: str,
+        message_id: int,
+        expected_role: str,
+    ) -> tuple[ChatSession, ChatMessage]:
+        """Validate that the message belongs to the user's session with expected role."""
+        session = await self._chat_repo.find_session_by_conversation_id(conversation_id)
+        if session is None:
+            raise SessionNotFoundError()
+
+        if session.user_id != self._user_id:
+            raise AuthorizationError(
+                message="Not authorized to access this conversation"
+            )
+
+        message = await self._chat_repo.find_message_by_id(message_id)
+        if message is None:
+            raise MessageNotFoundError()
+
+        if message.session_id != session.id:
+            raise AppException(
+                message="Message does not belong to this conversation",
+                code="MESSAGE_OWNERSHIP_ERROR",
+                status_code=403,
+            )
+
+        if message.role != expected_role:
+            raise AppException(
+                message=f"Expected {expected_role} message, got {message.role}",
+                code="INVALID_MESSAGE_ROLE",
+                status_code=400,
+            )
+
+        return session, message
 
     async def _get_or_create_session(self, conversation_id: str) -> tuple[Any, bool]:
         """Find existing session or create a new one."""
@@ -164,7 +331,7 @@ class AgentService:
         session_id: int,
         user_message: str,
         new_messages: list[dict[str, Any]],
-    ) -> None:
+    ) -> list[ChatMessage]:
         """Save user message and agent response messages to DB."""
         records = [
             ChatMessage(
@@ -185,6 +352,58 @@ class AgentService:
                 )
             )
         await self._chat_repo.create_messages_bulk(records)
+        return records
+
+    async def _save_ai_messages(
+        self,
+        session_id: int,
+        new_messages: list[dict[str, Any]],
+    ) -> list[ChatMessage]:
+        """Save only AI/tool messages to DB (no human message)."""
+        records: list[ChatMessage] = []
+        for msg in new_messages:
+            records.append(
+                ChatMessage(
+                    session_id=session_id,
+                    role=msg["role"],
+                    content=msg.get("content", ""),
+                    tool_calls_json=msg.get("tool_calls_json"),
+                    tool_call_id=msg.get("tool_call_id"),
+                    tool_name=msg.get("tool_name"),
+                )
+            )
+        await self._chat_repo.create_messages_bulk(records)
+        return records
+
+    async def _find_last_human_message_id(self, session_id: int) -> int | None:
+        """Find the ID of the last human message in a session."""
+        db_messages = await self._chat_repo.find_messages_by_session_id(session_id)
+        for msg in reversed(db_messages):
+            if msg.role == "human":
+                return msg.id
+        return None
+
+    @staticmethod
+    def _extract_message_ids(
+        records: list[ChatMessage],
+    ) -> tuple[int | None, int | None]:
+        """Extract user and AI message IDs from saved records."""
+        user_id = None
+        ai_id = None
+        for record in records:
+            if record.role == "human" and user_id is None:
+                user_id = record.id
+            if record.role == "ai":
+                ai_id = record.id
+        return user_id, ai_id
+
+    @staticmethod
+    def _extract_ai_message_id(records: list[ChatMessage]) -> int | None:
+        """Extract the AI message ID from saved records."""
+        for record in records:
+            if record.role == "ai":
+                return record.id
+        return None
 
     @staticmethod
     def _build_system_prompt(state: dict) -> list[BaseMessage]:

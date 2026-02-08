@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConversationSummary(BaseModel):
@@ -15,6 +15,12 @@ class ConversationSummary(BaseModel):
     last_message_preview: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class UpdateTitleRequest(BaseModel):
+    """Request to update conversation title."""
+
+    title: str = Field(..., min_length=1, max_length=20)
 
 
 class ConversationListResponse(BaseModel):

@@ -43,11 +43,46 @@ def mock_agent_service() -> MagicMock:
                     "conversation_id": "test-conv-123",
                     "session_id": 1,
                     "is_new_session": True,
+                    "user_message_id": 1,
+                    "ai_message_id": 2,
                 }
             ),
         )
 
     mock.stream_chat = mock_stream_chat
+
+    async def mock_stream_regenerate(conversation_id, message_id):
+        yield StreamEvent(event="token", data="Regenerated")
+        yield StreamEvent(
+            event="done",
+            data=json.dumps(
+                {
+                    "conversation_id": conversation_id,
+                    "session_id": 1,
+                    "user_message_id": 1,
+                    "ai_message_id": 3,
+                }
+            ),
+        )
+
+    mock.stream_regenerate = mock_stream_regenerate
+
+    async def mock_stream_edit(conversation_id, message_id, new_content):
+        yield StreamEvent(event="token", data="Edited response")
+        yield StreamEvent(
+            event="done",
+            data=json.dumps(
+                {
+                    "conversation_id": conversation_id,
+                    "session_id": 1,
+                    "user_message_id": 4,
+                    "ai_message_id": 5,
+                }
+            ),
+        )
+
+    mock.stream_edit = mock_stream_edit
+
     return mock
 
 
@@ -216,6 +251,114 @@ class TestStreamChatEndpoint:
         assert response.status_code == 422
 
 
+class TestRegenerateEndpoint:
+    """Tests for POST /api/v1/chat/regenerate endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_regenerate_returns_sse(
+        self,
+        async_client_with_mock: AsyncClient,
+    ) -> None:
+        response = await async_client_with_mock.post(
+            "/api/v1/chat/regenerate",
+            json={"message_id": 2, "conversation_id": "conv-123"},
+        )
+
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        assert "data:" in response.text
+
+    @pytest.mark.asyncio
+    async def test_regenerate_validation_error_missing_fields(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        response = await async_client.post(
+            "/api/v1/chat/regenerate",
+            json={"message_id": 2},
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_regenerate_unauthenticated(
+        self,
+        unauthed_client: AsyncClient,
+    ) -> None:
+        response = await unauthed_client.post(
+            "/api/v1/chat/regenerate",
+            json={"message_id": 2, "conversation_id": "conv-123"},
+        )
+
+        assert response.status_code == 401
+
+
+class TestEditEndpoint:
+    """Tests for POST /api/v1/chat/edit endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_edit_returns_sse(
+        self,
+        async_client_with_mock: AsyncClient,
+    ) -> None:
+        response = await async_client_with_mock.post(
+            "/api/v1/chat/edit",
+            json={
+                "message_id": 1,
+                "conversation_id": "conv-123",
+                "message": "Updated question",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        assert "data:" in response.text
+
+    @pytest.mark.asyncio
+    async def test_edit_validation_error_empty_message(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        response = await async_client.post(
+            "/api/v1/chat/edit",
+            json={
+                "message_id": 1,
+                "conversation_id": "conv-123",
+                "message": "",
+            },
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_edit_validation_error_missing_fields(
+        self,
+        async_client: AsyncClient,
+    ) -> None:
+        response = await async_client.post(
+            "/api/v1/chat/edit",
+            json={"message_id": 1},
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_edit_unauthenticated(
+        self,
+        unauthed_client: AsyncClient,
+    ) -> None:
+        response = await unauthed_client.post(
+            "/api/v1/chat/edit",
+            json={
+                "message_id": 1,
+                "conversation_id": "conv-123",
+                "message": "Updated",
+            },
+        )
+
+        assert response.status_code == 401
+
+
 class TestChatRouterIntegration:
     """Integration tests for chat router registration."""
 
@@ -232,6 +375,8 @@ class TestChatRouterIntegration:
 
         assert "/api/v1/chat" in paths
         assert "/api/v1/chat/stream" in paths
+        assert "/api/v1/chat/regenerate" in paths
+        assert "/api/v1/chat/edit" in paths
 
     @pytest.mark.asyncio
     async def test_health_check_still_works(
