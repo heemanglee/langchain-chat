@@ -6,7 +6,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_async_session
 from app.dependencies import get_agent_service, get_llm, require_role
 from app.schemas.chat_schema import ChatRequest, ChatResponse
 from app.schemas.response_schema import ApiResponse, success_response
@@ -27,10 +29,14 @@ async def chat(
     request: ChatRequest,
     agent_service: AgentServiceDep,
     background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_async_session),
 ) -> dict:
     """Process a chat request and return a response."""
     result, is_new_session = await agent_service.chat(request)
     if is_new_session:
+        # 사용자의 요청에 대해 응답을 생성하는 DB Session과 BackgroundTasks를 통해 제목을 생성하는 Session은 다르다.
+        # 따라서 응답을 생성한 Session에서 commit을 해야 제목을 생성하는 Session에서 commit된 converstaion을 조회할 수 있다.
+        await session.commit()
         background_tasks.add_task(
             generate_session_title,
             session_id=result.session_id,
@@ -44,12 +50,14 @@ async def event_generator(
     agent_service: AgentService,
     request: ChatRequest,
     background_tasks: BackgroundTasks,
+    session: AsyncSession,
 ) -> AsyncGenerator[str, None]:
     """Generate Server-Sent Events from agent stream."""
     async for event in agent_service.stream_chat(request):
         if event.event == "done":
             done_data = json.loads(event.data)
             if done_data.get("is_new_session"):
+                await session.commit()
                 background_tasks.add_task(
                     generate_session_title,
                     session_id=done_data["session_id"],
@@ -65,10 +73,11 @@ async def stream_chat(
     request: ChatRequest,
     agent_service: AgentServiceDep,
     background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_async_session),
 ) -> StreamingResponse:
     """Stream chat response as Server-Sent Events."""
     return StreamingResponse(
-        event_generator(agent_service, request, background_tasks),
+        event_generator(agent_service, request, background_tasks, session),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

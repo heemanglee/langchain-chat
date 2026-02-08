@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
@@ -158,10 +158,6 @@ class ChatRepository:
 
     async def update_session_title(self, session_id: int, title: str) -> None:
         """Update the title of an existing session."""
-        result = await self._session.execute(
-            select(ChatSession).where(ChatSession.id == session_id)
+        await self._session.execute(
+            update(ChatSession).where(ChatSession.id == session_id).values(title=title)
         )
-        session = result.scalar_one_or_none()
-        if session:
-            session.title = title
-            await self._session.flush()
