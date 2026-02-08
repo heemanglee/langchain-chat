@@ -71,3 +71,6 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Generated
+openapi.json

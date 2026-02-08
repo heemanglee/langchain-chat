@@ -38,6 +38,9 @@ pre-commit run --all-files
 alembic revision --autogenerate -m "message"
 alembic upgrade head
 
+# OpenAPI 스키마 생성 (FE 연동용)
+python -m scripts.generate_openapi
+
 # Chainlit 웹 UI
 chainlit run chainlit_app.py -w
 ```
