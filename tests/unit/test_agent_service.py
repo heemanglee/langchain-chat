@@ -282,6 +282,11 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [HumanMessage(content="Hello"), AIMessage(content="Hello")]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -310,6 +315,11 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [HumanMessage(content="Hello"), AIMessage(content="Hi")]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -337,6 +347,11 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [HumanMessage(content="Hello"), AIMessage(content="Hi")]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -370,6 +385,14 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [
+                    HumanMessage(content="Hi"),
+                    AIMessage(content="Hello world"),
+                ]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -405,6 +428,14 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [
+                    HumanMessage(content="Search test"),
+                    AIMessage(content=""),
+                ]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -433,6 +464,14 @@ class TestAgentServiceStreamChat:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [
+                    HumanMessage(content="Hello"),
+                    AIMessage(content="Done"),
+                ]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -619,6 +658,14 @@ class TestStreamRegenerate:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [
+                    HumanMessage(content="Hello"),
+                    AIMessage(content="Regenerated!"),
+                ]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -668,6 +715,14 @@ class TestStreamEdit:
                 }
 
             mock_agent.astream_events = mock_astream_events
+            mock_state = MagicMock()
+            mock_state.values = {
+                "messages": [
+                    HumanMessage(content="New question"),
+                    AIMessage(content="Edited response!"),
+                ]
+            }
+            mock_agent.aget_state = AsyncMock(return_value=mock_state)
             mock_create_agent.return_value = mock_agent
 
             service = AgentService(llm=mock_llm, chat_repo=mock_chat_repo, user_id=1)
@@ -855,3 +910,150 @@ class TestExtractNewMessages:
 
         assert len(result) == 1
         assert result[0]["content"] == "New A"
+
+
+class TestSanitizeMessageSequence:
+    """Tests for AgentService._sanitize_message_sequence static method."""
+
+    def test_removes_orphaned_tool_message(self) -> None:
+        messages = [
+            HumanMessage(content="Hello"),
+            ToolMessage(content="result", tool_call_id="c1", name="search"),
+        ]
+        result = AgentService._sanitize_message_sequence(messages)
+
+        assert len(result) == 1
+        assert isinstance(result[0], HumanMessage)
+
+    def test_keeps_tool_message_with_valid_predecessor(self) -> None:
+        messages = [
+            HumanMessage(content="Hello"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {}, "id": "c1"}],
+            ),
+            ToolMessage(content="result", tool_call_id="c1", name="search"),
+        ]
+        result = AgentService._sanitize_message_sequence(messages)
+
+        assert len(result) == 3
+        assert isinstance(result[2], ToolMessage)
+
+    def test_keeps_multiple_tool_messages_after_ai_with_calls(self) -> None:
+        messages = [
+            HumanMessage(content="Hello"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "s1", "args": {}, "id": "c1"},
+                    {"name": "s2", "args": {}, "id": "c2"},
+                ],
+            ),
+            ToolMessage(content="r1", tool_call_id="c1", name="s1"),
+            ToolMessage(content="r2", tool_call_id="c2", name="s2"),
+        ]
+        result = AgentService._sanitize_message_sequence(messages)
+
+        assert len(result) == 4
+
+    def test_removes_orphaned_preserves_valid(self) -> None:
+        messages = [
+            HumanMessage(content="Q1"),
+            ToolMessage(content="orphaned", tool_call_id="x", name="x"),
+            AIMessage(content="A1"),
+            HumanMessage(content="Q2"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "s", "args": {}, "id": "c1"}],
+            ),
+            ToolMessage(content="valid", tool_call_id="c1", name="s"),
+        ]
+        result = AgentService._sanitize_message_sequence(messages)
+
+        assert len(result) == 5
+        assert isinstance(result[0], HumanMessage)
+        assert isinstance(result[1], AIMessage)
+        assert result[1].content == "A1"
+        assert isinstance(result[4], ToolMessage)
+        assert result[4].content == "valid"
+
+    def test_empty_messages(self) -> None:
+        result = AgentService._sanitize_message_sequence([])
+        assert result == []
+
+    def test_no_tool_messages_unchanged(self) -> None:
+        messages = [
+            HumanMessage(content="Q"),
+            AIMessage(content="A"),
+        ]
+        result = AgentService._sanitize_message_sequence(messages)
+        assert len(result) == 2
+
+
+class TestConvertMessagesToDicts:
+    """Tests for AgentService._convert_messages_to_dicts static method."""
+
+    def test_convert_ai_message(self) -> None:
+        messages = [AIMessage(content="Hello")]
+        result = AgentService._convert_messages_to_dicts(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "ai"
+        assert result[0]["content"] == "Hello"
+        assert "tool_calls_json" not in result[0]
+
+    def test_convert_ai_message_with_tool_calls(self) -> None:
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "search", "args": {"q": "test"}, "id": "c1"}],
+            )
+        ]
+        result = AgentService._convert_messages_to_dicts(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "ai"
+        assert "tool_calls_json" in result[0]
+        parsed = json.loads(result[0]["tool_calls_json"])
+        assert parsed[0]["name"] == "search"
+
+    def test_convert_tool_message(self) -> None:
+        messages = [
+            ToolMessage(content="Search result", tool_call_id="c1", name="search")
+        ]
+        result = AgentService._convert_messages_to_dicts(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "tool"
+        assert result[0]["content"] == "Search result"
+        assert result[0]["tool_call_id"] == "c1"
+        assert result[0]["tool_name"] == "search"
+
+    def test_convert_mixed_messages_preserves_order(self) -> None:
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "s", "args": {}, "id": "c1"}],
+            ),
+            ToolMessage(content="result", tool_call_id="c1", name="s"),
+            AIMessage(content="Final answer"),
+        ]
+        result = AgentService._convert_messages_to_dicts(messages)
+
+        assert len(result) == 3
+        assert result[0]["role"] == "ai"
+        assert "tool_calls_json" in result[0]
+        assert result[1]["role"] == "tool"
+        assert result[2]["role"] == "ai"
+        assert result[2]["content"] == "Final answer"
+
+    def test_skips_human_and_system_messages(self) -> None:
+        messages = [
+            HumanMessage(content="Q"),
+            SystemMessage(content="System"),
+            AIMessage(content="A"),
+        ]
+        result = AgentService._convert_messages_to_dicts(messages)
+
+        assert len(result) == 1
+        assert result[0]["role"] == "ai"
