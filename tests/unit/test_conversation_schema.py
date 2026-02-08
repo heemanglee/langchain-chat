@@ -7,9 +7,104 @@ from pydantic import ValidationError
 
 from app.schemas.conversation_schema import (
     ConversationListResponse,
+    ConversationMessagesResponse,
     ConversationSummary,
+    MessageResponse,
     UpdateTitleRequest,
 )
+
+
+class TestMessageResponse:
+    """Tests for MessageResponse schema."""
+
+    def test_from_attributes(self) -> None:
+        class FakeMessage:
+            id = 1
+            session_id = 10
+            role = "human"
+            content = "안녕하세요"
+            tool_calls_json = None
+            tool_call_id = None
+            tool_name = None
+            created_at = datetime(2026, 1, 1, tzinfo=UTC)
+
+        msg = MessageResponse.model_validate(FakeMessage())
+        assert msg.id == 1
+        assert msg.session_id == 10
+        assert msg.role == "human"
+        assert msg.content == "안녕하세요"
+
+    def test_optional_defaults(self) -> None:
+        msg = MessageResponse(
+            id=1,
+            session_id=10,
+            role="human",
+            content="hello",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        assert msg.tool_calls_json is None
+        assert msg.tool_call_id is None
+        assert msg.tool_name is None
+
+    def test_with_tool_fields(self) -> None:
+        msg = MessageResponse(
+            id=2,
+            session_id=10,
+            role="tool",
+            content="result",
+            tool_calls_json='[{"name":"web_search"}]',
+            tool_call_id="call_abc",
+            tool_name="web_search",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        assert msg.tool_call_id == "call_abc"
+        assert msg.tool_name == "web_search"
+
+    def test_frozen(self) -> None:
+        msg = MessageResponse(
+            id=1,
+            session_id=10,
+            role="human",
+            content="hello",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        with pytest.raises(ValidationError):
+            msg.content = "changed"  # type: ignore[misc]
+
+
+class TestConversationMessagesResponse:
+    """Tests for ConversationMessagesResponse schema."""
+
+    def test_empty_messages(self) -> None:
+        resp = ConversationMessagesResponse(
+            conversation_id="conv-1",
+            messages=[],
+        )
+        assert resp.conversation_id == "conv-1"
+        assert resp.messages == []
+
+    def test_with_messages(self) -> None:
+        msg = MessageResponse(
+            id=1,
+            session_id=10,
+            role="human",
+            content="hello",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        resp = ConversationMessagesResponse(
+            conversation_id="conv-1",
+            messages=[msg],
+        )
+        assert len(resp.messages) == 1
+        assert resp.messages[0].content == "hello"
+
+    def test_frozen(self) -> None:
+        resp = ConversationMessagesResponse(
+            conversation_id="conv-1",
+            messages=[],
+        )
+        with pytest.raises(ValidationError):
+            resp.conversation_id = "changed"  # type: ignore[misc]
 
 
 class TestConversationSummary:
