@@ -118,17 +118,14 @@ class ChatRepository:
             .scalar_subquery()
         )
 
-        stmt = (
-            select(
-                ChatSession.id,
-                ChatSession.conversation_id,
-                ChatSession.title,
-                preview_subq.label("last_message_preview"),
-                ChatSession.created_at,
-                ChatSession.updated_at,
-            )
-            .where(ChatSession.user_id == user_id)
-        )
+        stmt = select(
+            ChatSession.id,
+            ChatSession.conversation_id,
+            ChatSession.title,
+            preview_subq.label("last_message_preview"),
+            ChatSession.created_at,
+            ChatSession.updated_at,
+        ).where(ChatSession.user_id == user_id)
 
         if cursor_updated_at is not None and cursor_id is not None:
             stmt = stmt.where(

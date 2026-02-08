@@ -1,6 +1,6 @@
 """Unit tests for ChatRepository."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -282,9 +282,9 @@ class TestFindSessionsByUser:
         self, chat_repo: ChatRepository, db_session: AsyncSession
     ) -> None:
         user_id = await _create_user(db_session)
-        ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        ts2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
-        ts3 = datetime(2026, 1, 3, tzinfo=timezone.utc)
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 1, 2, tzinfo=UTC)
+        ts3 = datetime(2026, 1, 3, tzinfo=UTC)
 
         await _create_session_with_ts(db_session, user_id, "old", ts1)
         await _create_session_with_ts(db_session, user_id, "mid", ts2)
@@ -299,7 +299,7 @@ class TestFindSessionsByUser:
     ) -> None:
         user_id = await _create_user(db_session)
         for i in range(5):
-            ts = datetime(2026, 1, i + 1, tzinfo=timezone.utc)
+            ts = datetime(2026, 1, i + 1, tzinfo=UTC)
             await _create_session_with_ts(db_session, user_id, f"c-{i}", ts)
 
         rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=3)
@@ -310,9 +310,9 @@ class TestFindSessionsByUser:
         self, chat_repo: ChatRepository, db_session: AsyncSession
     ) -> None:
         user_id = await _create_user(db_session)
-        ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        ts2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
-        ts3 = datetime(2026, 1, 3, tzinfo=timezone.utc)
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 1, 2, tzinfo=UTC)
+        ts3 = datetime(2026, 1, 3, tzinfo=UTC)
 
         await _create_session_with_ts(db_session, user_id, "c1", ts1)
         await _create_session_with_ts(db_session, user_id, "c2", ts2)
@@ -332,7 +332,7 @@ class TestFindSessionsByUser:
         self, chat_repo: ChatRepository, db_session: AsyncSession
     ) -> None:
         user_id = await _create_user(db_session)
-        same_ts = datetime(2026, 6, 15, tzinfo=timezone.utc)
+        same_ts = datetime(2026, 6, 15, tzinfo=UTC)
 
         s1 = await _create_session_with_ts(db_session, user_id, "tie-1", same_ts)
         s2 = await _create_session_with_ts(db_session, user_id, "tie-2", same_ts)
@@ -378,9 +378,7 @@ class TestFindSessionsByUser:
         self, chat_repo: ChatRepository, db_session: AsyncSession
     ) -> None:
         user_id = await _create_user(db_session)
-        await chat_repo.create_session(
-            user_id=user_id, conversation_id="conv-no-msg"
-        )
+        await chat_repo.create_session(user_id=user_id, conversation_id="conv-no-msg")
 
         rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
         assert len(rows) == 1

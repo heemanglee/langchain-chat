@@ -2,7 +2,7 @@
 
 import base64
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from app.core.exceptions import AppException
 from app.repositories.chat_repo import ChatRepository
@@ -25,7 +25,7 @@ def decode_cursor(cursor: str) -> tuple[datetime, int]:
         data = json.loads(raw)
         updated_at = datetime.fromisoformat(data["u"])
         if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=timezone.utc)
+            updated_at = updated_at.replace(tzinfo=UTC)
         session_id = int(data["i"])
         return updated_at, session_id
     except Exception as exc:

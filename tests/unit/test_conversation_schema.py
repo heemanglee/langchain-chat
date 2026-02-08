@@ -1,8 +1,9 @@
 """Unit tests for conversation_schema.py."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from app.schemas.conversation_schema import (
     ConversationListResponse,
@@ -18,8 +19,8 @@ class TestConversationSummary:
             conversation_id = "abc-123"
             title = "서울 날씨"
             last_message_preview = "오늘 날씨 어때?"
-            created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
-            updated_at = datetime(2026, 1, 2, tzinfo=timezone.utc)
+            created_at = datetime(2026, 1, 1, tzinfo=UTC)
+            updated_at = datetime(2026, 1, 2, tzinfo=UTC)
 
         summary = ConversationSummary.model_validate(FakeRow())
         assert summary.conversation_id == "abc-123"
@@ -29,8 +30,8 @@ class TestConversationSummary:
     def test_defaults(self) -> None:
         summary = ConversationSummary(
             conversation_id="x",
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         assert summary.title is None
         assert summary.last_message_preview is None
@@ -38,10 +39,10 @@ class TestConversationSummary:
     def test_frozen(self) -> None:
         summary = ConversationSummary(
             conversation_id="x",
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             summary.title = "changed"  # type: ignore[misc]
 
 
@@ -57,8 +58,8 @@ class TestConversationListResponse:
     def test_with_cursor(self) -> None:
         summary = ConversationSummary(
             conversation_id="a",
-            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 1, 1, tzinfo=UTC),
         )
         resp = ConversationListResponse(
             conversations=[summary],
@@ -71,5 +72,5 @@ class TestConversationListResponse:
 
     def test_frozen(self) -> None:
         resp = ConversationListResponse(conversations=[])
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             resp.has_next = True  # type: ignore[misc]

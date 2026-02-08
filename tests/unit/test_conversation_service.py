@@ -1,6 +1,6 @@
 """Unit tests for ConversationService."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -26,7 +26,7 @@ def _make_preview(
         conversation_id=conversation_id,
         title=title,
         last_message_preview=preview,
-        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=updated_at,
     )
 
@@ -35,7 +35,7 @@ class TestCursorEncoding:
     """Tests for encode_cursor / decode_cursor round-trip."""
 
     def test_roundtrip(self) -> None:
-        ts = datetime(2026, 2, 8, 14, 30, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 2, 8, 14, 30, 0, tzinfo=UTC)
         cursor = encode_cursor(ts, 42)
         decoded_ts, decoded_id = decode_cursor(cursor)
         assert decoded_ts == ts
@@ -84,7 +84,7 @@ class TestConversationService:
     async def test_single_page_no_next(
         self, service: ConversationService, mock_repo: AsyncMock
     ) -> None:
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
         rows = [_make_preview(1, "c1", ts)]
         mock_repo.find_sessions_by_user.return_value = rows
 
@@ -98,7 +98,7 @@ class TestConversationService:
     async def test_has_next_page(
         self, service: ConversationService, mock_repo: AsyncMock
     ) -> None:
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
         # limit=2 → service requests 3 rows. Return 3 means has_next=True
         rows = [
             _make_preview(3, "c3", ts),
@@ -121,7 +121,7 @@ class TestConversationService:
     async def test_cursor_passed_to_repo(
         self, service: ConversationService, mock_repo: AsyncMock
     ) -> None:
-        ts = datetime(2026, 2, 8, 14, 30, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 2, 8, 14, 30, 0, tzinfo=UTC)
         cursor = encode_cursor(ts, 42)
         mock_repo.find_sessions_by_user.return_value = []
 
@@ -138,7 +138,7 @@ class TestConversationService:
     async def test_preview_forwarded(
         self, service: ConversationService, mock_repo: AsyncMock
     ) -> None:
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
         rows = [_make_preview(1, "c1", ts, preview="안녕하세요")]
         mock_repo.find_sessions_by_user.return_value = rows
 

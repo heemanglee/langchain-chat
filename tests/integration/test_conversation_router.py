@@ -1,10 +1,9 @@
 """Integration tests for GET /api/v1/conversations."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
@@ -15,9 +14,7 @@ from tests.conftest import make_auth_headers, test_session_factory
 async def _seed_user(email: str = "conv@test.com") -> int:
     """Insert a user and return its id."""
     async with test_session_factory() as session:
-        user = User(
-            email=email, hashed_password="hashed", username=email.split("@")[0]
-        )
+        user = User(email=email, hashed_password="hashed", username=email.split("@")[0])
         session.add(user)
         await session.flush()
         await session.refresh(user)
@@ -60,9 +57,7 @@ class TestUnauthenticated:
     """Unauthenticated requests should be rejected."""
 
     @pytest.mark.asyncio
-    async def test_returns_401_without_token(
-        self, async_client: AsyncClient
-    ) -> None:
+    async def test_returns_401_without_token(self, async_client: AsyncClient) -> None:
         resp = await async_client.get("/api/v1/conversations")
         assert resp.status_code == 401
 
@@ -89,7 +84,7 @@ class TestListConversations:
     ) -> None:
         user_a = await _seed_user("a@test.com")
         user_b = await _seed_user("b@test.com")
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
 
         await _seed_session(user_a, "conv-a", ts)
         await _seed_session(user_b, "conv-b", ts)
@@ -106,9 +101,9 @@ class TestListConversations:
         self, fake_redis: object, async_client: AsyncClient
     ) -> None:
         user_id = await _seed_user("sort@test.com")
-        await _seed_session(user_id, "old", datetime(2026, 1, 1, tzinfo=timezone.utc))
-        await _seed_session(user_id, "mid", datetime(2026, 1, 2, tzinfo=timezone.utc))
-        await _seed_session(user_id, "new", datetime(2026, 1, 3, tzinfo=timezone.utc))
+        await _seed_session(user_id, "old", datetime(2026, 1, 1, tzinfo=UTC))
+        await _seed_session(user_id, "mid", datetime(2026, 1, 2, tzinfo=UTC))
+        await _seed_session(user_id, "new", datetime(2026, 1, 3, tzinfo=UTC))
 
         headers = make_auth_headers(fake_redis, user_id=user_id, email="sort@test.com")
         resp = await async_client.get("/api/v1/conversations", headers=headers)
@@ -121,15 +116,13 @@ class TestListConversations:
     ) -> None:
         user_id = await _seed_user("page@test.com")
         for i in range(5):
-            ts = datetime(2026, 1, i + 1, tzinfo=timezone.utc)
+            ts = datetime(2026, 1, i + 1, tzinfo=UTC)
             await _seed_session(user_id, f"p-{i}", ts)
 
         headers = make_auth_headers(fake_redis, user_id=user_id, email="page@test.com")
 
         # Page 1: limit=2
-        resp = await async_client.get(
-            "/api/v1/conversations?limit=2", headers=headers
-        )
+        resp = await async_client.get("/api/v1/conversations?limit=2", headers=headers)
         body = resp.json()["data"]
         assert len(body["conversations"]) == 2
         assert body["has_next"] is True
@@ -158,7 +151,7 @@ class TestListConversations:
         self, fake_redis: object, async_client: AsyncClient
     ) -> None:
         user_id = await _seed_user("deflimit@test.com")
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
         await _seed_session(user_id, "dl-1", ts)
 
         headers = make_auth_headers(
@@ -172,7 +165,7 @@ class TestListConversations:
         self, fake_redis: object, async_client: AsyncClient
     ) -> None:
         user_id = await _seed_user("preview@test.com")
-        ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
         session_id = await _seed_session(user_id, "conv-prev", ts, title="제목")
         await _seed_message(session_id, "human", "첫 번째 메시지")
         await _seed_message(session_id, "ai", "AI 응답")
@@ -191,12 +184,8 @@ class TestValidation:
     """Input validation."""
 
     @pytest.mark.asyncio
-    async def test_invalid_cursor_returns_400(
-        self, authed_client: AsyncClient
-    ) -> None:
-        resp = await authed_client.get(
-            "/api/v1/conversations?cursor=not-valid!!!"
-        )
+    async def test_invalid_cursor_returns_400(self, authed_client: AsyncClient) -> None:
+        resp = await authed_client.get("/api/v1/conversations?cursor=not-valid!!!")
         assert resp.status_code == 400
         assert resp.json()["code"] == "INVALID_CURSOR"
 
