@@ -4,7 +4,7 @@ import base64
 import json
 from datetime import UTC, datetime
 
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, AuthorizationError, SessionNotFoundError
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.conversation_schema import (
     ConversationListResponse,
@@ -42,6 +42,17 @@ class ConversationService:
     def __init__(self, chat_repo: ChatRepository, user_id: int) -> None:
         self._chat_repo = chat_repo
         self._user_id = user_id
+
+    async def update_title(self, conversation_id: str, title: str) -> None:
+        """Update the title of a conversation owned by the current user."""
+        session = await self._chat_repo.find_session_by_conversation_id(conversation_id)
+        if session is None:
+            raise SessionNotFoundError()
+        if session.user_id != self._user_id:
+            raise AuthorizationError(
+                message="Not authorized to update this conversation"
+            )
+        await self._chat_repo.update_session_title(session.id, title)
 
     async def list_conversations(
         self,
