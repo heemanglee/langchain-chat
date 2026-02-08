@@ -67,14 +67,14 @@ class TestConversationService:
 
     @pytest.fixture
     def service(self, mock_repo: ChatRepository) -> ConversationService:
-        return ConversationService(chat_repo=mock_repo)
+        return ConversationService(chat_repo=mock_repo, user_id=1)
 
     @pytest.mark.asyncio
     async def test_empty_list(
         self, service: ConversationService, mock_repo: AsyncMock
     ) -> None:
         mock_repo.find_sessions_by_user.return_value = []
-        result = await service.list_conversations(user_id=1, limit=20)
+        result = await service.list_conversations(limit=20)
 
         assert result.conversations == []
         assert result.has_next is False
@@ -88,7 +88,7 @@ class TestConversationService:
         rows = [_make_preview(1, "c1", ts)]
         mock_repo.find_sessions_by_user.return_value = rows
 
-        result = await service.list_conversations(user_id=1, limit=20)
+        result = await service.list_conversations(limit=20)
 
         assert len(result.conversations) == 1
         assert result.has_next is False
@@ -107,7 +107,7 @@ class TestConversationService:
         ]
         mock_repo.find_sessions_by_user.return_value = rows
 
-        result = await service.list_conversations(user_id=1, limit=2)
+        result = await service.list_conversations(limit=2)
 
         assert len(result.conversations) == 2
         assert result.has_next is True
@@ -125,7 +125,7 @@ class TestConversationService:
         cursor = encode_cursor(ts, 42)
         mock_repo.find_sessions_by_user.return_value = []
 
-        await service.list_conversations(user_id=1, limit=20, cursor=cursor)
+        await service.list_conversations(limit=20, cursor=cursor)
 
         mock_repo.find_sessions_by_user.assert_called_once_with(
             user_id=1,
@@ -142,5 +142,5 @@ class TestConversationService:
         rows = [_make_preview(1, "c1", ts, preview="안녕하세요")]
         mock_repo.find_sessions_by_user.return_value = rows
 
-        result = await service.list_conversations(user_id=1, limit=20)
+        result = await service.list_conversations(limit=20)
         assert result.conversations[0].last_message_preview == "안녕하세요"

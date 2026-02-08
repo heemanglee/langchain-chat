@@ -39,12 +39,12 @@ def decode_cursor(cursor: str) -> tuple[datetime, int]:
 class ConversationService:
     """Orchestrates conversation list queries with cursor pagination."""
 
-    def __init__(self, chat_repo: ChatRepository) -> None:
+    def __init__(self, chat_repo: ChatRepository, user_id: int) -> None:
         self._chat_repo = chat_repo
+        self._user_id = user_id
 
     async def list_conversations(
         self,
-        user_id: int,
         limit: int = 20,
         cursor: str | None = None,
     ) -> ConversationListResponse:
@@ -56,7 +56,7 @@ class ConversationService:
             cursor_updated_at, cursor_id = decode_cursor(cursor)
 
         rows = await self._chat_repo.find_sessions_by_user(
-            user_id=user_id,
+            user_id=self._user_id,
             limit=limit + 1,
             cursor_updated_at=cursor_updated_at,
             cursor_id=cursor_id,
