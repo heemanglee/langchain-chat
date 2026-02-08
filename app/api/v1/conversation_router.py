@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from app.dependencies import get_conversation_service, require_role
 from app.schemas.conversation_schema import (
     ConversationListResponse,
+    ConversationMessagesResponse,
     UpdateTitleRequest,
 )
 from app.schemas.response_schema import ApiResponse, success_response
@@ -31,6 +32,19 @@ async def list_conversations(
 ) -> dict:
     """List the current user's conversations with cursor-based pagination."""
     result = await service.list_conversations(limit=limit, cursor=cursor)
+    return success_response(result)
+
+
+@router.get(
+    "/{conversation_id}/messages",
+    response_model=ApiResponse[ConversationMessagesResponse],
+)
+async def get_conversation_messages(
+    conversation_id: str,
+    service: ConversationServiceDep,
+) -> dict:
+    """Retrieve all messages for a conversation."""
+    result = await service.get_messages(conversation_id=conversation_id)
     return success_response(result)
 
 

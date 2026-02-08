@@ -146,6 +146,85 @@ class TestConversationService:
         assert result.conversations[0].last_message_preview == "안녕하세요"
 
 
+class TestGetMessages:
+    """Tests for ConversationService.get_messages."""
+
+    @pytest.fixture
+    def mock_repo(self) -> AsyncMock:
+        return AsyncMock(spec=ChatRepository)
+
+    @pytest.fixture
+    def service(self, mock_repo: AsyncMock) -> ConversationService:
+        return ConversationService(chat_repo=mock_repo, user_id=1)
+
+    @pytest.mark.asyncio
+    async def test_get_messages_success(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 10
+        session_mock.user_id = 1
+        mock_repo.find_session_by_conversation_id.return_value = session_mock
+
+        msg_mock = MagicMock()
+        msg_mock.id = 1
+        msg_mock.session_id = 10
+        msg_mock.role = "human"
+        msg_mock.content = "안녕하세요"
+        msg_mock.tool_calls_json = None
+        msg_mock.tool_call_id = None
+        msg_mock.tool_name = None
+        msg_mock.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+        mock_repo.find_messages_by_session_id.return_value = [msg_mock]
+
+        result = await service.get_messages("conv-123")
+
+        assert result.conversation_id == "conv-123"
+        assert len(result.messages) == 1
+        assert result.messages[0].role == "human"
+        assert result.messages[0].content == "안녕하세요"
+        mock_repo.find_session_by_conversation_id.assert_called_once_with("conv-123")
+        mock_repo.find_messages_by_session_id.assert_called_once_with(10)
+
+    @pytest.mark.asyncio
+    async def test_get_messages_empty(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 10
+        session_mock.user_id = 1
+        mock_repo.find_session_by_conversation_id.return_value = session_mock
+        mock_repo.find_messages_by_session_id.return_value = []
+
+        result = await service.get_messages("conv-123")
+
+        assert result.conversation_id == "conv-123"
+        assert result.messages == []
+
+    @pytest.mark.asyncio
+    async def test_get_messages_session_not_found(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        mock_repo.find_session_by_conversation_id.return_value = None
+
+        with pytest.raises(SessionNotFoundError):
+            await service.get_messages("non-existent")
+
+    @pytest.mark.asyncio
+    async def test_get_messages_not_authorized(
+        self, service: ConversationService, mock_repo: AsyncMock
+    ) -> None:
+        session_mock = MagicMock()
+        session_mock.id = 10
+        session_mock.user_id = 999  # Different user
+        mock_repo.find_session_by_conversation_id.return_value = session_mock
+
+        with pytest.raises(AuthorizationError):
+            await service.get_messages("conv-123")
+
+        mock_repo.find_messages_by_session_id.assert_not_called()
+
+
 class TestUpdateTitle:
     """Tests for ConversationService.update_title."""
 

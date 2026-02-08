@@ -45,12 +45,28 @@ async def _seed_session(
     return session_id
 
 
-async def _seed_message(session_id: int, role: str, content: str) -> None:
-    """Insert a chat message."""
+async def _seed_message(
+    session_id: int,
+    role: str,
+    content: str,
+    tool_call_id: str | None = None,
+    tool_name: str | None = None,
+) -> int:
+    """Insert a chat message and return its id."""
     async with test_session_factory() as session:
-        msg = ChatMessage(session_id=session_id, role=role, content=content)
+        msg = ChatMessage(
+            session_id=session_id,
+            role=role,
+            content=content,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+        )
         session.add(msg)
+        await session.flush()
+        await session.refresh(msg)
+        msg_id = msg.id
         await session.commit()
+    return msg_id
 
 
 class TestUnauthenticated:
@@ -178,6 +194,123 @@ class TestListConversations:
         conv = resp.json()["data"]["conversations"][0]
         assert conv["title"] == "제목"
         assert conv["last_message_preview"] == "마지막 메시지"
+
+
+class TestGetConversationMessages:
+    """Tests for GET /api/v1/conversations/{conversation_id}/messages."""
+
+    @pytest.mark.asyncio
+    async def test_get_messages_success(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("msg@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        session_id = await _seed_session(user_id, "conv-msg", ts)
+        await _seed_message(session_id, "human", "질문입니다")
+        await _seed_message(
+            session_id,
+            "tool",
+            "검색 결과",
+            tool_call_id="call_1",
+            tool_name="web_search",
+        )
+        await _seed_message(session_id, "ai", "AI 응답입니다")
+
+        headers = make_auth_headers(fake_redis, user_id=user_id, email="msg@test.com")
+        resp = await async_client.get(
+            "/api/v1/conversations/conv-msg/messages", headers=headers
+        )
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body["conversation_id"] == "conv-msg"
+        assert len(body["messages"]) == 3
+        assert body["messages"][0]["role"] == "human"
+        assert body["messages"][1]["role"] == "tool"
+        assert body["messages"][2]["role"] == "ai"
+
+    @pytest.mark.asyncio
+    async def test_get_messages_empty_conversation(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("empty-msg@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        await _seed_session(user_id, "conv-empty-msg", ts)
+
+        headers = make_auth_headers(
+            fake_redis, user_id=user_id, email="empty-msg@test.com"
+        )
+        resp = await async_client.get(
+            "/api/v1/conversations/conv-empty-msg/messages", headers=headers
+        )
+        assert resp.status_code == 200
+        body = resp.json()["data"]
+        assert body["conversation_id"] == "conv-empty-msg"
+        assert body["messages"] == []
+
+    @pytest.mark.asyncio
+    async def test_get_messages_not_found(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("nf-msg@test.com")
+        headers = make_auth_headers(
+            fake_redis, user_id=user_id, email="nf-msg@test.com"
+        )
+        resp = await async_client.get(
+            "/api/v1/conversations/non-existent/messages", headers=headers
+        )
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "SESSION_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_get_messages_not_authorized(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        owner_id = await _seed_user("msg-owner@test.com")
+        other_id = await _seed_user("msg-other@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        session_id = await _seed_session(owner_id, "conv-msg-auth", ts)
+        await _seed_message(session_id, "human", "비밀 메시지")
+
+        headers = make_auth_headers(
+            fake_redis, user_id=other_id, email="msg-other@test.com"
+        )
+        resp = await async_client.get(
+            "/api/v1/conversations/conv-msg-auth/messages", headers=headers
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_messages_unauthenticated(
+        self, async_client: AsyncClient
+    ) -> None:
+        resp = await async_client.get("/api/v1/conversations/any-conv/messages")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_messages_with_tool_fields(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("tool-msg@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        session_id = await _seed_session(user_id, "conv-tool-msg", ts)
+        await _seed_message(
+            session_id,
+            "tool",
+            "검색 결과 내용",
+            tool_call_id="call_abc",
+            tool_name="web_search",
+        )
+
+        headers = make_auth_headers(
+            fake_redis, user_id=user_id, email="tool-msg@test.com"
+        )
+        resp = await async_client.get(
+            "/api/v1/conversations/conv-tool-msg/messages", headers=headers
+        )
+        assert resp.status_code == 200
+        msg = resp.json()["data"]["messages"][0]
+        assert msg["tool_call_id"] == "call_abc"
+        assert msg["tool_name"] == "web_search"
 
 
 class TestUpdateTitle:

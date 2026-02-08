@@ -23,6 +23,30 @@ class UpdateTitleRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=20)
 
 
+class MessageResponse(BaseModel):
+    """Single message within a conversation."""
+
+    model_config = ConfigDict(frozen=True, from_attributes=True)
+
+    id: int
+    session_id: int
+    role: str
+    content: str
+    tool_calls_json: str | None = None
+    tool_call_id: str | None = None
+    tool_name: str | None = None
+    created_at: datetime
+
+
+class ConversationMessagesResponse(BaseModel):
+    """All messages for a conversation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    conversation_id: str
+    messages: list[MessageResponse]
+
+
 class ConversationListResponse(BaseModel):
     """Paginated conversation list with cursor metadata."""
 
