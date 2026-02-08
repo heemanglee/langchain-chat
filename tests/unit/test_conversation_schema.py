@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.schemas.conversation_schema import (
     ConversationListResponse,
     ConversationSummary,
+    UpdateTitleRequest,
 )
 
 
@@ -44,6 +45,30 @@ class TestConversationSummary:
         )
         with pytest.raises(ValidationError):
             summary.title = "changed"  # type: ignore[misc]
+
+
+class TestUpdateTitleRequest:
+    """Tests for UpdateTitleRequest schema."""
+
+    def test_valid_title(self) -> None:
+        request = UpdateTitleRequest(title="새 제목")
+        assert request.title == "새 제목"
+
+    def test_title_at_max_length(self) -> None:
+        request = UpdateTitleRequest(title="a" * 20)
+        assert len(request.title) == 20
+
+    def test_title_too_long_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            UpdateTitleRequest(title="a" * 21)
+
+    def test_empty_title_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            UpdateTitleRequest(title="")
+
+    def test_missing_title_fails(self) -> None:
+        with pytest.raises(ValidationError):
+            UpdateTitleRequest()  # type: ignore[call-arg]
 
 
 class TestConversationListResponse:

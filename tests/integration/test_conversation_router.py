@@ -1,4 +1,4 @@
-"""Integration tests for GET /api/v1/conversations."""
+"""Integration tests for conversation router endpoints."""
 
 from datetime import UTC, datetime
 
@@ -178,6 +178,90 @@ class TestListConversations:
         conv = resp.json()["data"]["conversations"][0]
         assert conv["title"] == "제목"
         assert conv["last_message_preview"] == "마지막 메시지"
+
+
+class TestUpdateTitle:
+    """Tests for PATCH /api/v1/conversations/{conversation_id}/title."""
+
+    @pytest.mark.asyncio
+    async def test_update_title_success(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("title@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        await _seed_session(user_id, "conv-title-up", ts, title="기존 제목")
+
+        headers = make_auth_headers(fake_redis, user_id=user_id, email="title@test.com")
+        resp = await async_client.patch(
+            "/api/v1/conversations/conv-title-up/title",
+            json={"title": "새 제목"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Title updated"
+
+    @pytest.mark.asyncio
+    async def test_update_title_not_found(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        user_id = await _seed_user("nf@test.com")
+        headers = make_auth_headers(fake_redis, user_id=user_id, email="nf@test.com")
+        resp = await async_client.patch(
+            "/api/v1/conversations/non-existent/title",
+            json={"title": "새 제목"},
+            headers=headers,
+        )
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "SESSION_NOT_FOUND"
+
+    @pytest.mark.asyncio
+    async def test_update_title_not_authorized(
+        self, fake_redis: object, async_client: AsyncClient
+    ) -> None:
+        owner_id = await _seed_user("owner@test.com")
+        other_id = await _seed_user("other@test.com")
+        ts = datetime(2026, 1, 1, tzinfo=UTC)
+        await _seed_session(owner_id, "conv-auth-test", ts)
+
+        headers = make_auth_headers(
+            fake_redis, user_id=other_id, email="other@test.com"
+        )
+        resp = await async_client.patch(
+            "/api/v1/conversations/conv-auth-test/title",
+            json={"title": "새 제목"},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_update_title_validation_too_long(
+        self, authed_client: AsyncClient
+    ) -> None:
+        resp = await authed_client.patch(
+            "/api/v1/conversations/any-conv/title",
+            json={"title": "a" * 21},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_update_title_validation_empty(
+        self, authed_client: AsyncClient
+    ) -> None:
+        resp = await authed_client.patch(
+            "/api/v1/conversations/any-conv/title",
+            json={"title": ""},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_update_title_unauthenticated(
+        self, async_client: AsyncClient
+    ) -> None:
+        resp = await async_client.patch(
+            "/api/v1/conversations/any-conv/title",
+            json={"title": "새 제목"},
+        )
+        assert resp.status_code == 401
 
 
 class TestValidation:

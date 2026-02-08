@@ -27,7 +27,7 @@ class TestTitleService:
         service = TitleService(mock_llm)
         title = await service.generate_title("오늘 서울 날씨 어때?")
 
-        assert len(title) <= 10
+        assert len(title) <= 20
         assert title == "날씨 질문"
 
     @pytest.mark.asyncio
@@ -36,13 +36,15 @@ class TestTitleService:
     ) -> None:
         mock = MagicMock(spec=BaseChatModel)
         mock.ainvoke = AsyncMock(
-            return_value=AIMessage(content="이것은매우긴제목입니다열자초과")
+            return_value=AIMessage(
+                content="이것은매우긴제목입니다스무자를초과하는제목이다확인"
+            )
         )
 
         service = TitleService(mock)
         title = await service.generate_title("test")
 
-        assert len(title) <= 10
+        assert len(title) <= 20
 
     @pytest.mark.asyncio
     async def test_generate_title_strips_whitespace(self) -> None:
@@ -63,5 +65,5 @@ class TestTitleService:
 
         mock_llm.ainvoke.assert_called_once()
         prompt_arg = mock_llm.ainvoke.call_args[0][0]
-        assert "10자 이내" in prompt_arg
+        assert "20자 이내" in prompt_arg
         assert "Python이 뭐야?" in prompt_arg
