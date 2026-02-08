@@ -19,6 +19,7 @@ from app.repositories.chat_repo import ChatRepository
 from app.repositories.user_repo import UserRepository
 from app.services.agent_service import AgentService
 from app.services.auth_service import AuthService
+from app.services.conversation_service import ConversationService
 from app.services.token_service import TokenService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -127,6 +128,14 @@ def require_role(*allowed_roles: str) -> Callable[..., CurrentUser]:
         return current_user
 
     return _check
+
+
+def get_conversation_service(
+    chat_repo: ChatRepository = Depends(get_chat_repository),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ConversationService:
+    """Get ConversationService for the authenticated user."""
+    return ConversationService(chat_repo=chat_repo, user_id=current_user.id)
 
 
 def get_agent_service(

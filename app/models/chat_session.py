@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -12,6 +12,9 @@ class ChatSession(Base):
     """Persistent chat session tied to a user."""
 
     __tablename__ = "chat_sessions"
+    __table_args__ = (
+        Index("ix_chat_sessions_user_id_updated_at", "user_id", "updated_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
