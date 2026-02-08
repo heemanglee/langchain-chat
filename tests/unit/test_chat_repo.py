@@ -1,9 +1,12 @@
 """Unit tests for ChatRepository."""
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat_message import ChatMessage
+from app.models.chat_session import ChatSession
 from app.repositories.chat_repo import ChatRepository
 
 
@@ -13,19 +16,41 @@ def chat_repo(db_session: AsyncSession) -> ChatRepository:
     return ChatRepository(db_session)
 
 
-async def _create_user(db_session: AsyncSession) -> int:
+async def _create_user(
+    db_session: AsyncSession, email: str = "chatuser@test.com"
+) -> int:
     """Helper: insert a minimal user row and return its id."""
     from app.models.user import User
 
     user = User(
-        email="chatuser@test.com",
+        email=email,
         hashed_password="hashed",
-        username="chatuser",
+        username=email.split("@")[0],
     )
     db_session.add(user)
     await db_session.flush()
     await db_session.refresh(user)
     return user.id
+
+
+async def _create_session_with_ts(
+    db_session: AsyncSession,
+    user_id: int,
+    conversation_id: str,
+    updated_at: datetime,
+    title: str | None = None,
+) -> ChatSession:
+    """Helper: insert a session with explicit updated_at for pagination tests."""
+    session = ChatSession(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        title=title,
+        updated_at=updated_at,
+    )
+    db_session.add(session)
+    await db_session.flush()
+    await db_session.refresh(session)
+    return session
 
 
 class TestCreateSession:
@@ -224,3 +249,139 @@ class TestUpdateSessionTitle:
         updated = await chat_repo.find_session_by_conversation_id("conv-title")
         assert updated is not None
         assert updated.title == "New Title"
+
+
+class TestFindSessionsByUser:
+    """Tests for ChatRepository.find_sessions_by_user."""
+
+    @pytest.mark.asyncio
+    async def test_empty_result(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
+        assert rows == []
+
+    @pytest.mark.asyncio
+    async def test_filters_by_user_id(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_a = await _create_user(db_session, email="a@test.com")
+        user_b = await _create_user(db_session, email="b@test.com")
+
+        await chat_repo.create_session(user_id=user_a, conversation_id="conv-a1")
+        await chat_repo.create_session(user_id=user_b, conversation_id="conv-b1")
+        await chat_repo.create_session(user_id=user_a, conversation_id="conv-a2")
+
+        rows = await chat_repo.find_sessions_by_user(user_id=user_a, limit=10)
+        assert len(rows) == 2
+        assert all(r.conversation_id.startswith("conv-a") for r in rows)
+
+    @pytest.mark.asyncio
+    async def test_order_by_updated_at_desc(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        ts3 = datetime(2026, 1, 3, tzinfo=timezone.utc)
+
+        await _create_session_with_ts(db_session, user_id, "old", ts1)
+        await _create_session_with_ts(db_session, user_id, "mid", ts2)
+        await _create_session_with_ts(db_session, user_id, "new", ts3)
+
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
+        assert [r.conversation_id for r in rows] == ["new", "mid", "old"]
+
+    @pytest.mark.asyncio
+    async def test_limit_respected(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        for i in range(5):
+            ts = datetime(2026, 1, i + 1, tzinfo=timezone.utc)
+            await _create_session_with_ts(db_session, user_id, f"c-{i}", ts)
+
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=3)
+        assert len(rows) == 3
+
+    @pytest.mark.asyncio
+    async def test_cursor_filtering(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        ts1 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        ts2 = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        ts3 = datetime(2026, 1, 3, tzinfo=timezone.utc)
+
+        await _create_session_with_ts(db_session, user_id, "c1", ts1)
+        await _create_session_with_ts(db_session, user_id, "c2", ts2)
+        s3 = await _create_session_with_ts(db_session, user_id, "c3", ts3)
+
+        # Cursor points at s3 → should return c2, c1
+        rows = await chat_repo.find_sessions_by_user(
+            user_id=user_id,
+            limit=10,
+            cursor_updated_at=s3.updated_at,
+            cursor_id=s3.id,
+        )
+        assert [r.conversation_id for r in rows] == ["c2", "c1"]
+
+    @pytest.mark.asyncio
+    async def test_same_updated_at_tiebreak_by_id_desc(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        same_ts = datetime(2026, 6, 15, tzinfo=timezone.utc)
+
+        s1 = await _create_session_with_ts(db_session, user_id, "tie-1", same_ts)
+        s2 = await _create_session_with_ts(db_session, user_id, "tie-2", same_ts)
+
+        # Without cursor: higher id first
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
+        assert rows[0].id > rows[1].id
+
+        # Cursor at s2 → should return s1 only (same updated_at, lower id)
+        rows = await chat_repo.find_sessions_by_user(
+            user_id=user_id,
+            limit=10,
+            cursor_updated_at=s2.updated_at,
+            cursor_id=s2.id,
+        )
+        assert len(rows) == 1
+        assert rows[0].id == s1.id
+
+    @pytest.mark.asyncio
+    async def test_preview_from_last_human_message(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        session = await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-preview"
+        )
+        await chat_repo.create_message(
+            session_id=session.id, role="human", content="첫 번째 질문"
+        )
+        await chat_repo.create_message(
+            session_id=session.id, role="ai", content="AI 응답"
+        )
+        await chat_repo.create_message(
+            session_id=session.id, role="human", content="마지막 질문"
+        )
+
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
+        assert len(rows) == 1
+        assert rows[0].last_message_preview == "마지막 질문"
+
+    @pytest.mark.asyncio
+    async def test_preview_none_when_no_messages(
+        self, chat_repo: ChatRepository, db_session: AsyncSession
+    ) -> None:
+        user_id = await _create_user(db_session)
+        await chat_repo.create_session(
+            user_id=user_id, conversation_id="conv-no-msg"
+        )
+
+        rows = await chat_repo.find_sessions_by_user(user_id=user_id, limit=10)
+        assert len(rows) == 1
+        assert rows[0].last_message_preview is None
